@@ -12,13 +12,9 @@
 
 ## Education
 
-### University of British Columbia
+**University of British Columbia** | *Master of Data Science* | 2025 - 2026
 
-*Master of Data Science* | Expected Jun 2026
-
-### University of Western Ontario
-
-*Bachelor of Medical Sciences, Interdisciplinary Medical Sciences* | 2017 - 2021
+**University of Western Ontario** | *Bachelor of Medical Sciences* | 2017 - 2021
 
 ## Experience
 
