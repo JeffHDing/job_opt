@@ -4,12 +4,12 @@ Integration tests for llm_client.py.
 These tests make real Gemini API calls and are skipped by default.
 Run them explicitly:
 
-    pytest tests/test_llm_client.py -m integration
+    pytest tests/test_llm_client.py -m integration -s
 
 Requires GEMINI_API_KEY to be set in the environment or .env file.
 """
-import os
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -41,36 +41,46 @@ def sample_jd() -> str:
     )
 
 
+@pytest.fixture(scope="module")
+def tailor_result(master_md, sample_jd) -> tuple[str, object]:
+    """Single tailor+validate API call shared across all tests that need it."""
+    from llm_client import tailor_resume
+    t0 = time.perf_counter()
+    tailored, result = tailor_resume(master_md, sample_jd)
+    elapsed = time.perf_counter() - t0
+    print(f"\n  [tailor_result fixture] elapsed: {elapsed:.2f}s", flush=True)
+    return tailored, result
+
+
 # ---------------------------------------------------------------------------
 # tailor_resume
 # ---------------------------------------------------------------------------
 
 class TestTailorResume:
-    def test_returns_nonempty_markdown(self, master_md, sample_jd):
-        from llm_client import tailor_resume
-        tailored, result = tailor_resume(master_md, sample_jd)
+    def test_returns_nonempty_markdown(self, tailor_result):
+        tailored, _ = tailor_result
         assert isinstance(tailored, str)
         assert len(tailored) > 100
         assert tailored.startswith("#")
 
-    def test_validation_result_has_passed_field(self, master_md, sample_jd):
-        from llm_client import tailor_resume
-        _, result = tailor_resume(master_md, sample_jd)
+    def test_validation_result_has_passed_field(self, tailor_result):
+        _, result = tailor_result
         assert isinstance(result.passed, bool)
 
     def test_validate_false_skips_judge(self, master_md, sample_jd):
         from llm_client import tailor_resume
+        t0 = time.perf_counter()
         _, result = tailor_resume(master_md, sample_jd, validate=False)
+        elapsed = time.perf_counter() - t0
+        print(f"\n  [test_validate_false_skips_judge] elapsed: {elapsed:.2f}s", flush=True)
         assert result.skipped is True
         assert result.skip_reason == "validate=False"
 
-    def test_tailored_preserves_contact_line(self, master_md, sample_jd):
-        from llm_client import tailor_resume
-        tailored, _ = tailor_resume(master_md, sample_jd)
+    def test_tailored_preserves_contact_line(self, tailor_result):
+        tailored, _ = tailor_result
         assert "Jeffrey Ding" in tailored
 
-    def test_tailored_preserves_all_sections(self, master_md, sample_jd):
-        from llm_client import tailor_resume
-        tailored, _ = tailor_resume(master_md, sample_jd)
+    def test_tailored_preserves_all_sections(self, tailor_result):
+        tailored, _ = tailor_result
         for section in ("## Technical Skills", "## Education", "## Experience", "## Projects"):
             assert section in tailored

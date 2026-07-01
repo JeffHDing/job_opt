@@ -7,22 +7,78 @@ from typing import Any, Callable
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
-from google.genai.errors import ServerError
+from google.genai.errors import ClientError, ServerError
 
 from resume_diff import BulletChange, ValidationResult, find_changed_bullets, revert_violations
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(_PROJECT_ROOT / ".env")
 
+_PROMPTS_DIR = _PROJECT_ROOT / "prompts"
+
+# ---------------------------------------------------------------------------
+# Client
+# ---------------------------------------------------------------------------
+
+_client: genai.Client | None = None
+
+
+def _get_client() -> genai.Client:
+    global _client
+    if _client is None:
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            raise EnvironmentError(
+                "GEMINI_API_KEY is not set. Copy .env.example to .env and add your key, "
+                "or export it: export GEMINI_API_KEY='your-key'"
+            )
+        _client = genai.Client(api_key=api_key)
+    return _client
+
+# ---------------------------------------------------------------------------
+# Retry helper
+# ---------------------------------------------------------------------------
+
+_RETRY_ATTEMPTS = 3
+_RETRY_BASE_DELAY = 5.0   # seconds; doubles each attempt
+
+
+def _with_retry(fn: Callable[[], Any]) -> Any:
+    """
+    Call fn() up to _RETRY_ATTEMPTS times, retrying on 503 (server overload)
+    or 429 (rate-limit) with exponential backoff. All other exceptions propagate.
+    """
+    delay = _RETRY_BASE_DELAY
+    for attempt in range(1, _RETRY_ATTEMPTS + 1):
+        try:
+            return fn()
+        except (ServerError, ClientError) as exc:
+            retryable = (
+                (isinstance(exc, ServerError) and exc.code == 503)
+                or (isinstance(exc, ClientError) and exc.code == 429)
+            )
+            if not retryable or attempt == _RETRY_ATTEMPTS:
+                raise
+            label = "503 overload" if exc.code == 503 else "429 rate-limit"
+            print(
+                f"  {label} from Gemini (attempt {attempt}/{_RETRY_ATTEMPTS}), "
+                f"retrying in {delay:.0f}s...",
+                flush=True,
+            )
+            time.sleep(delay)
+            delay *= 2
+
+
 # ---------------------------------------------------------------------------
 # Model config
 # ---------------------------------------------------------------------------
 # gemini-3.1-flash-lite: 500 RPD on free tier
 # Both calls in this script cost 2 requests per run → ~250 applications/day
+
 _TAILOR_MODEL = "gemini-3.1-flash-lite"
 _JUDGE_MODEL  = "gemini-3.1-flash-lite"
 
-_PROMPTS_DIR = _PROJECT_ROOT / "prompts"
+
 _TAILOR_SYSTEM_PROMPT = (_PROMPTS_DIR / "tailor_system.txt").read_text()
 _JUDGE_SYSTEM_PROMPT  = (_PROMPTS_DIR / "judge_system.txt").read_text()
 
@@ -65,12 +121,18 @@ def _validate_changes(
             config=types.GenerateContentConfig(
                 system_instruction=_JUDGE_SYSTEM_PROMPT,
                 temperature=0.0,
-                max_output_tokens=1024,
+                max_output_tokens=8192,
                 response_mime_type="application/json",
             ),
             contents=user_message,
         ))
         verdicts: list[dict] = json.loads(response.text)
+    except json.JSONDecodeError as exc:
+        return ValidationResult(
+            passed=True,
+            skipped=True,
+            skip_reason=f"JSONDecodeError (malformed model output): {exc}",
+        )
     except Exception as exc:
         return ValidationResult(
             passed=True,
@@ -80,49 +142,6 @@ def _validate_changes(
 
     violations = [v for v in verdicts if not v.get("supported", True)]
     return ValidationResult(passed=len(violations) == 0, violations=violations)
-
-
-# ---------------------------------------------------------------------------
-# Retry helper
-# ---------------------------------------------------------------------------
-
-_RETRY_ATTEMPTS = 3
-_RETRY_BASE_DELAY = 5.0   # seconds; doubles each attempt
-
-
-def _with_retry(fn: Callable[[], Any]) -> Any:
-    """
-    Call fn() up to _RETRY_ATTEMPTS times, retrying on 503 ServerError with
-    exponential backoff. All other exceptions propagate immediately.
-    """
-    delay = _RETRY_BASE_DELAY
-    for attempt in range(1, _RETRY_ATTEMPTS + 1):
-        try:
-            return fn()
-        except ServerError as exc:
-            if exc.code != 503 or attempt == _RETRY_ATTEMPTS:
-                raise
-            print(
-                f"  503 from Gemini (attempt {attempt}/{_RETRY_ATTEMPTS}), "
-                f"retrying in {delay:.0f}s...",
-                flush=True,
-            )
-            time.sleep(delay)
-            delay *= 2
-
-
-# ---------------------------------------------------------------------------
-# Client
-# ---------------------------------------------------------------------------
-
-def _get_client() -> genai.Client:
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        raise EnvironmentError(
-            "GEMINI_API_KEY is not set. Copy .env.example to .env and add your key, "
-            "or export it: export GEMINI_API_KEY='your-key'"
-        )
-    return genai.Client(api_key=api_key)
 
 
 # ---------------------------------------------------------------------------
@@ -155,7 +174,7 @@ def tailor_resume(
         config=types.GenerateContentConfig(
             system_instruction=_TAILOR_SYSTEM_PROMPT,
             temperature=0.3,
-            max_output_tokens=4096,
+            max_output_tokens=8192,
         ),
         contents=user_message,
     ))
