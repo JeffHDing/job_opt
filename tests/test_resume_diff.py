@@ -11,7 +11,6 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from resume_diff import (
-    BulletChange,
     ValidationResult,
     _closest_match,
     _token_overlap,
@@ -19,7 +18,6 @@ from resume_diff import (
     parse_bullets,
     revert_violations,
 )
-
 
 # ---------------------------------------------------------------------------
 # parse_bullets
@@ -144,7 +142,9 @@ class TestFindChangedBullets:
         )
         changes = find_changed_bullets(self.MASTER, tailored)
         sections = {c.tailored: c.original for c in changes}
-        assert sections["Built a data pipeline in Python"] == "Built a pipeline in Python"
+        assert (
+            sections["Built a data pipeline in Python"] == "Built a pipeline in Python"
+        )
         assert sections["Managed a large team of five"] == "Managed a team of five"
 
     def test_new_section_bullet_flagged(self):
@@ -202,7 +202,11 @@ class TestRevertViolations:
         md = "## S\n- dup bullet\n## T\n- dup bullet\n"
         violations = [{"original": "orig bullet", "tailored": "dup bullet"}]
         result = revert_violations(md, violations)
-        lines = [l.strip() for l in result.splitlines() if l.strip().startswith("- ")]
+        lines = [
+            ln.strip()
+            for ln in result.splitlines()
+            if ln.strip().startswith("- ")
+        ]
         assert lines.count("- orig bullet") == 1
         assert lines.count("- dup bullet") == 1
 
@@ -245,7 +249,11 @@ class TestValidationResultSummary:
         r = ValidationResult(
             passed=False,
             violations=[
-                {"reason": "Added SQL", "original": "Python", "tailored": "Python, SQL"},
+                {
+                    "reason": "Added SQL",
+                    "original": "Python",
+                    "tailored": "Python, SQL",
+                },
             ],
         )
         summary = r.summary()
@@ -254,5 +262,7 @@ class TestValidationResultSummary:
         assert "Python, SQL" in summary
 
     def test_failed_missing_reason_key(self):
-        r = ValidationResult(passed=False, violations=[{"original": "a", "tailored": "b"}])
+        r = ValidationResult(
+            passed=False, violations=[{"original": "a", "tailored": "b"}]
+        )
         assert "(no reason given)" in r.summary()

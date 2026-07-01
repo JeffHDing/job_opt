@@ -1,6 +1,7 @@
-import markdown
-from weasyprint import HTML, CSS
 import logging
+
+import markdown
+from weasyprint import HTML
 
 # Suppress overly verbose WeasyPrint font warnings
 logging.getLogger('weasyprint').setLevel(logging.ERROR)

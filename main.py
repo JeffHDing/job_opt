@@ -1,7 +1,6 @@
 import argparse
-import sys
-from pathlib import Path
 import datetime
+import sys
 
 # from src.job_processor import process_application
 
@@ -14,9 +13,21 @@ def main():
     print("Job Opt: Resume Tailoring Engine")
     
     # 1. Setup argument parsing for structured input
-    parser = argparse.ArgumentParser(description="Tailor a master resume to a job description.")
-    parser.add_argument("--company", type=str, required=True, help="Name of the company (e.g., 'Google')")
-    parser.add_argument("--role", type=str, required=True, help="Job title (e.g., 'Data_Scientist')")
+    parser = argparse.ArgumentParser(
+        description="Tailor a master resume to a job description."
+    )
+    parser.add_argument(
+        "--company",
+        type=str,
+        required=True,
+        help="Name of the company (e.g., 'Google')",
+    )
+    parser.add_argument(
+        "--role",
+        type=str,
+        required=True,
+        help="Job title (e.g., 'Data_Scientist')",
+    )
     
     args = parser.parse_args()
     
@@ -37,7 +48,10 @@ def main():
     
     # 4. Success state
     date_str = datetime.datetime.now().strftime("%Y%m%d")
-    print(f"\n[4] Success! Files saved to data/tailored_outputs/{date_str}_{args.company}_{args.role}.pdf")
+    print(
+        f"\n[4] Success! Files saved to "
+        f"data/tailored_outputs/{date_str}_{args.company}_{args.role}.pdf"
+    )
 
 if __name__ == "__main__":
     main()

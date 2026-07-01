@@ -9,7 +9,12 @@ from google import genai
 from google.genai import types
 from google.genai.errors import ClientError, ServerError
 
-from resume_diff import BulletChange, ValidationResult, find_changed_bullets, revert_violations
+from resume_diff import (
+    BulletChange,
+    ValidationResult,
+    find_changed_bullets,
+    revert_violations,
+)
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(_PROJECT_ROOT / ".env")
@@ -29,7 +34,8 @@ def _get_client() -> genai.Client:
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key:
             raise EnvironmentError(
-                "GEMINI_API_KEY is not set. Copy .env.example to .env and add your key, "
+                "GEMINI_API_KEY is not set. "
+                "Copy .env.example to .env and add your key, "
                 "or export it: export GEMINI_API_KEY='your-key'"
             )
         _client = genai.Client(api_key=api_key)
@@ -81,6 +87,53 @@ _JUDGE_MODEL  = "gemini-3.1-flash-lite"
 
 _TAILOR_SYSTEM_PROMPT = (_PROMPTS_DIR / "tailor_system.txt").read_text()
 _JUDGE_SYSTEM_PROMPT  = (_PROMPTS_DIR / "judge_system.txt").read_text()
+
+
+# ---------------------------------------------------------------------------
+# Tailor call
+# ---------------------------------------------------------------------------
+
+def tailor_resume(
+    master_resume_md: str,
+    job_description: str,
+    validate: bool = True,
+) -> tuple[str, ValidationResult]:
+    """
+    Tailor a master resume to a job description using Gemini.
+
+    Returns (tailored_markdown, ValidationResult). When validate=True a second
+    judge call reviews only the changed bullets; on any judge failure the result
+    is returned with skipped=True rather than raising.
+    """
+    client = _get_client()
+
+    user_message = (
+        "## Master Resume\n\n"
+        f"{master_resume_md.strip()}\n\n"
+        "## Job Description\n\n"
+        f"{job_description.strip()}"
+    )
+
+    response = _with_retry(lambda: client.models.generate_content(
+        model=_TAILOR_MODEL,
+        config=types.GenerateContentConfig(
+            system_instruction=_TAILOR_SYSTEM_PROMPT,
+            temperature=0.3,
+            max_output_tokens=8192,
+        ),
+        contents=user_message,
+    ))
+
+    tailored_md = response.text.strip()
+
+    if not validate:
+        return tailored_md, ValidationResult(
+            passed=True, skipped=True, skip_reason="validate=False"
+        )
+
+    changes = find_changed_bullets(master_resume_md, tailored_md)
+    validation = _validate_changes(changes, job_description, client)
+    return tailored_md, validation
 
 
 # ---------------------------------------------------------------------------
@@ -145,51 +198,6 @@ def _validate_changes(
 
 
 # ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-def tailor_resume(
-    master_resume_md: str,
-    job_description: str,
-    validate: bool = True,
-) -> tuple[str, ValidationResult]:
-    """
-    Tailor a master resume to a job description using Gemini.
-
-    Returns (tailored_markdown, ValidationResult). When validate=True a second
-    judge call reviews only the changed bullets; on any judge failure the result
-    is returned with skipped=True rather than raising.
-    """
-    client = _get_client()
-
-    user_message = (
-        "## Master Resume\n\n"
-        f"{master_resume_md.strip()}\n\n"
-        "## Job Description\n\n"
-        f"{job_description.strip()}"
-    )
-
-    response = _with_retry(lambda: client.models.generate_content(
-        model=_TAILOR_MODEL,
-        config=types.GenerateContentConfig(
-            system_instruction=_TAILOR_SYSTEM_PROMPT,
-            temperature=0.3,
-            max_output_tokens=8192,
-        ),
-        contents=user_message,
-    ))
-
-    tailored_md = response.text.strip()
-
-    if not validate:
-        return tailored_md, ValidationResult(passed=True, skipped=True, skip_reason="validate=False")
-
-    changes = find_changed_bullets(master_resume_md, tailored_md)
-    validation = _validate_changes(changes, job_description, client)
-    return tailored_md, validation
-
-
-# ---------------------------------------------------------------------------
 # CLI entrypoint
 # ---------------------------------------------------------------------------
 
@@ -207,7 +215,10 @@ if __name__ == "__main__":
         type=Path,
         default=_DEFAULT_RESUME,
         metavar="FILE",
-        help=f"Path to master resume Markdown (default: {_DEFAULT_RESUME.relative_to(_PROJECT_ROOT)})",
+        help=(
+            "Path to master resume Markdown "
+            f"(default: {_DEFAULT_RESUME.relative_to(_PROJECT_ROOT)})"
+        ),
     )
     parser.add_argument(
         "--jd", "-j",
@@ -248,7 +259,8 @@ if __name__ == "__main__":
         print("error: job description is empty", file=sys.stderr)
         sys.exit(1)
 
-    print("Calling Gemini API (tailor" + ("" if args.no_validate else " + validate") + ")...", flush=True)
+    suffix = "" if args.no_validate else " + validate"
+    print(f"Calling Gemini API (tailor{suffix})...", flush=True)
     tailored, result = tailor_resume(
         args.resume.read_text(),
         jd_text,
@@ -261,7 +273,8 @@ if __name__ == "__main__":
     if not result.passed and not result.skipped:
         print()
         try:
-            answer = input("Revert flagged bullets to originals? [y/N] ").strip().lower()
+            raw = input("Revert flagged bullets to originals? [y/N] ")
+            answer = raw.strip().lower()
         except EOFError:
             answer = "n"
 

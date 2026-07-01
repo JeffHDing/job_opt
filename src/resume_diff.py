@@ -8,7 +8,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-
 # ---------------------------------------------------------------------------
 # Data types
 # ---------------------------------------------------------------------------
@@ -31,7 +30,10 @@ class ValidationResult:
         if self.skipped:
             return f"⚠  Validation skipped: {self.skip_reason}"
         if self.passed:
-            return f"✓  Validation passed ({len(self.violations)} changed bullets reviewed, none flagged)"
+            return (
+                f"✓  Validation passed ({len(self.violations)} changed bullets "
+                "reviewed, none flagged)"
+            )
         lines = [f"✗  Validation failed — {len(self.violations)} unsupported edit(s):"]
         for v in self.violations:
             lines.append(f"   • {v.get('reason', '(no reason given)')}")

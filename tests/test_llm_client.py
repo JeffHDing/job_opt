@@ -72,7 +72,8 @@ class TestTailorResume:
         t0 = time.perf_counter()
         _, result = tailor_resume(master_md, sample_jd, validate=False)
         elapsed = time.perf_counter() - t0
-        print(f"\n  [test_validate_false_skips_judge] elapsed: {elapsed:.2f}s", flush=True)
+        msg = f"\n  [test_validate_false_skips_judge] elapsed: {elapsed:.2f}s"
+        print(msg, flush=True)
         assert result.skipped is True
         assert result.skip_reason == "validate=False"
 
@@ -82,5 +83,11 @@ class TestTailorResume:
 
     def test_tailored_preserves_all_sections(self, tailor_result):
         tailored, _ = tailor_result
-        for section in ("## Technical Skills", "## Education", "## Experience", "## Projects"):
+        sections = (
+            "## Technical Skills",
+            "## Education",
+            "## Experience",
+            "## Projects",
+        )
+        for section in sections:
             assert section in tailored

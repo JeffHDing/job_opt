@@ -12,3 +12,5 @@ dependencies:
   - weasyprint
   - python-dotenv
   - pytest
+  - ruff
+  - pytest-cov
