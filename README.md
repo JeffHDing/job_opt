@@ -31,7 +31,7 @@ job_opt/
 ### 1. Create the Conda environment
 
 ```bash
-conda env create -f env.yml
+conda env create -f environment.yml
 conda activate job_opt
 ```
 
