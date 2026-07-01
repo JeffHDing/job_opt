@@ -11,7 +11,7 @@ def main():
     interactive loop for the user. It isolates the messy terminal I/O 
     from the clean business logic in your processing modules.
     """
-    print("=== Job Opt: Resume Tailoring Engine ===")
+    print("Job Opt: Resume Tailoring Engine")
     
     # 1. Setup argument parsing for structured input
     parser = argparse.ArgumentParser(description="Tailor a master resume to a job description.")
