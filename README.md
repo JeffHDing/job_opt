@@ -93,14 +93,24 @@ python main.py --company Google --role Data_Scientist
 
 ## Testing
 
+Tests are split into two categories registered in `pytest.ini`:
+
+| Mark | File | Needs API key? | Speed |
+|---|---|---|---|
+| *(none)* | `test_resume_diff.py` | No | Fast (~instant) |
+| `integration` | `test_llm_client.py` | Yes (`GEMINI_API_KEY`) | Slow (~24 s, costs API quota) |
+
 ```bash
 # Unit tests only (no API key, runs instantly)
 pytest tests/test_resume_diff.py
 
-# Integration tests (real Gemini API calls — requires GEMINI_API_KEY)
-pytest tests/test_llm_client.py -m integration
+# Integration tests only (real Gemini API calls)
+pytest -m integration
 
-# All tests
+# All tests except integration (CI-safe, no key required)
+pytest -m "not integration"
+
+# Everything
 pytest
 ```
 
