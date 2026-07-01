@@ -5,10 +5,10 @@
 
 ## Technical Skills
 
-- **Data Analysis & Modeling:** EDA, Data Mining, Data Visualization, Data Warehousing, Data Modelling
-- **Machine Learning & AI:** Machine Learning, Deep Learning, Agentic Workflows, CNN, SVC, Regression
-- **Programming & Databases:** Python, R, JavaScript, PostgreSQL, IBM Db2, MongoDB
-- **Tools & Frameworks:** AWS, Git, CI/CD, TensorFlow, Keras, Streamlit, Jupyter, Folium, SPSS, Excel
+**Data Analysis & Modeling:** EDA, Data Mining, Data Visualization, Data Warehousing, Data Modelling  
+**Machine Learning & AI:** Machine Learning, Deep Learning, Agentic Workflows, CNN, SVC, Regression  
+**Programming & Databases:** Python, R, JavaScript, PostgreSQL, IBM Db2, MongoDB  
+**Tools & Frameworks:** AWS, Git, CI/CD, TensorFlow, Keras, Streamlit, Jupyter, Folium, SPSS, Excel  
 
 ## Education
 
