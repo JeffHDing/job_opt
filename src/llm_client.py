@@ -148,7 +148,7 @@ def _with_retry(fn: Callable[[], Any]) -> Any:
         try:
             return fn()
         except ServerError as exc:
-            if exc.status_code != 503 or attempt == _RETRY_ATTEMPTS:
+            if exc.code != 503 or attempt == _RETRY_ATTEMPTS:
                 raise
             print(
                 f"  503 from Gemini (attempt {attempt}/{_RETRY_ATTEMPTS}), "
