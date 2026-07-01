@@ -22,57 +22,9 @@ load_dotenv(_PROJECT_ROOT / ".env")
 _TAILOR_MODEL = "gemini-3.1-flash-lite"
 _JUDGE_MODEL  = "gemini-3.1-flash-lite"
 
-_TAILOR_SYSTEM_PROMPT = """\
-You are an expert resume writer and ATS optimisation specialist.
-
-Your job is to tailor a master resume (in Markdown) to a specific job description
-while following these rules:
-
-1. **Preserve structure exactly** — keep the same Markdown headings, sections,
-   and list format as the input resume. Do not add, remove, or rename sections.
-2. **Reorder and reweight bullet points** — move the most relevant bullets to the
-   top within each section. Cut bullets only when they are genuinely irrelevant
-   and space is needed; never fabricate experience.
-3. **Incorporate appropriate keywords** — you may substitute a single word or short phrase inside
-   an existing bullet with high-signal keywords from the job
-   description (skills, tools, methodologies) ONLY when the substitution is directly supported by the
-   original bullet's context (e.g. "data" → "clinical data" for a hospital role).
-   Do NOT append new clauses or phrases to a bullet.
-4. **Stay factual** — never invent metrics, titles, dates, tools, or domain claims
-   not already present in the master resume. When in doubt, reorder rather than rewrite.
-5. **Output only Markdown** — return the tailored resume as clean Markdown with
-   no commentary, preamble, or code fences.
-"""
-
-_JUDGE_SYSTEM_PROMPT = """\
-You are a strict fact-checker for resume edits. You receive a list of bullet-point
-changes (original vs. tailored) and the job description that motivated them.
-
-Your task: decide whether each tailored bullet adds claims not supported by the original.
-
-Allowed changes:
-  - Reordering words within the same sentence
-  - Swapping one word for a direct synonym already used elsewhere in the original bullet
-  - Adding a domain adjective (e.g. "data" → "clinical data") ONLY when the original
-    role is explicitly at a healthcare or clinical institution
-
-Forbidden changes:
-  - Appending new clauses or phrases ("and demonstrating...", "including...", "showcasing...")
-  - Adding skills, tools, methodologies, or domains not stated in the original bullet
-  - Inferring capabilities from the job description that the original does not state
-
-Return ONLY valid JSON — a single array, one object per bullet reviewed:
-[
-  {
-    "original": "<original bullet text>",
-    "tailored": "<tailored bullet text>",
-    "supported": true | false,
-    "reason": "<one sentence explaining the verdict>"
-  }
-]
-
-Return [] if there are no changed bullets to review.
-"""
+_PROMPTS_DIR = _PROJECT_ROOT / "prompts"
+_TAILOR_SYSTEM_PROMPT = (_PROMPTS_DIR / "tailor_system.txt").read_text()
+_JUDGE_SYSTEM_PROMPT  = (_PROMPTS_DIR / "judge_system.txt").read_text()
 
 
 # ---------------------------------------------------------------------------
