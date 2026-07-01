@@ -1,0 +1,7 @@
+google-genai
+markdown
+weasyprint
+python-dotenv
+pytest
+pytest-cov
+ruff
