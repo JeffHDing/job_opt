@@ -16,6 +16,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
+from llm_client import tailor_resume  # noqa: E402
+
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # Skip the entire module if the marker isn't requested, so `pytest` (no flags)
@@ -44,7 +46,6 @@ def sample_jd() -> str:
 @pytest.fixture(scope="module")
 def tailor_result(master_md, sample_jd) -> tuple[str, object]:
     """Single tailor+validate API call shared across all tests that need it."""
-    from llm_client import tailor_resume
     t0 = time.perf_counter()
     tailored, result = tailor_resume(master_md, sample_jd)
     elapsed = time.perf_counter() - t0
@@ -68,7 +69,6 @@ class TestTailorResume:
         assert isinstance(result.passed, bool)
 
     def test_validate_false_skips_judge(self, master_md, sample_jd):
-        from llm_client import tailor_resume
         t0 = time.perf_counter()
         _, result = tailor_resume(master_md, sample_jd, validate=False)
         elapsed = time.perf_counter() - t0
