@@ -219,29 +219,71 @@ def tailor_resume(
 
 
 # ---------------------------------------------------------------------------
-# Smoke test
+# CLI entrypoint
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    import argparse
     import sys
 
-    resume_path = _PROJECT_ROOT / "data/templates/Jeffrey_Ding_CV_Data_Science.md"
-    if not resume_path.exists():
-        print(f"Resume not found at {resume_path}", file=sys.stderr)
+    _DEFAULT_RESUME = _PROJECT_ROOT / "data/templates/Jeffrey_Ding_CV_Data_Science.md"
+
+    parser = argparse.ArgumentParser(
+        description="Tailor a Markdown resume to a job description using Gemini.",
+    )
+    parser.add_argument(
+        "--resume", "-r",
+        type=Path,
+        default=_DEFAULT_RESUME,
+        metavar="FILE",
+        help=f"Path to master resume Markdown (default: {_DEFAULT_RESUME.relative_to(_PROJECT_ROOT)})",
+    )
+    parser.add_argument(
+        "--jd", "-j",
+        type=Path,
+        default=None,
+        metavar="FILE",
+        help="Path to job description text file (omit to read from stdin)",
+    )
+    parser.add_argument(
+        "--no-validate",
+        action="store_true",
+        help="Skip the judge validation call",
+    )
+    parser.add_argument(
+        "--out", "-o",
+        type=Path,
+        default=None,
+        metavar="FILE",
+        help="Write final Markdown to FILE instead of stdout",
+    )
+    args = parser.parse_args()
+
+    if not args.resume.exists():
+        print(f"error: resume not found: {args.resume}", file=sys.stderr)
         sys.exit(1)
 
-    sample_jd = """\
-We are looking for a Data Scientist with strong Python and SQL skills.
-Experience with machine learning pipelines, cloud platforms (AWS/GCP),
-and communicating insights to non-technical stakeholders is required.
-Familiarity with clinical or healthcare data is a plus.
-"""
+    if args.jd is not None:
+        if not args.jd.exists():
+            print(f"error: JD file not found: {args.jd}", file=sys.stderr)
+            sys.exit(1)
+        jd_text = args.jd.read_text()
+    else:
+        if sys.stdin.isatty():
+            print("Paste job description, then press Ctrl-D (Ctrl-Z on Windows):")
+        jd_text = sys.stdin.read()
 
-    print("Calling Gemini API (tailor + validate)...", flush=True)
-    tailored, result = tailor_resume(resume_path.read_text(), sample_jd)
+    if not jd_text.strip():
+        print("error: job description is empty", file=sys.stderr)
+        sys.exit(1)
 
-    print("\n--- Tailored Resume ---\n")
-    print(tailored)
+    print("Calling Gemini API (tailor" + ("" if args.no_validate else " + validate") + ")...", flush=True)
+    tailored, result = tailor_resume(
+        args.resume.read_text(),
+        jd_text,
+        validate=not args.no_validate,
+    )
+
     print("\n--- Validation Report ---\n")
     print(result.summary())
 
@@ -254,7 +296,12 @@ Familiarity with clinical or healthcare data is a plus.
 
         if answer == "y":
             tailored = revert_violations(tailored, result.violations)
-            print("\n--- Reverted Resume (violations restored to originals) ---\n")
-            print(tailored)
-        else:
-            print("Keeping tailored output as-is.")
+            print("Reverted violations to originals.")
+
+    if args.out:
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(tailored)
+        print(f"\nSaved to {args.out}")
+    else:
+        print("\n--- Tailored Resume ---\n")
+        print(tailored)
