@@ -101,8 +101,3 @@ def generate_resume_pdf(markdown_text: str, output_path: str):
     HTML(string=full_html).write_pdf(output_path)
     print(f"PDF written → {output_path}")
 
-if __name__ == "__main__":
-    # A quick guiding step for testing the exporter in isolation
-    with open("data/templates/Jeffrey_Ding_CV_Data_Science.md", "r", encoding="utf-8") as file:
-        text = file.read()
-    generate_resume_pdf(text, "data/tailored_outputs/test_outputs.pdf")
