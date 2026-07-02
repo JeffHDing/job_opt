@@ -111,10 +111,6 @@ def find_changed_bullets(master_md: str, tailored_md: str) -> list[BulletChange]
     return changes
 
 
-# ---------------------------------------------------------------------------
-# Revert helper
-# ---------------------------------------------------------------------------
-
 def revert_violations(tailored_md: str, violations: list[dict]) -> str:
     """
     Replace each violation's tailored bullet with its original in the Markdown.
@@ -147,6 +143,17 @@ def revert_violations(tailored_md: str, violations: list[dict]) -> str:
     return "".join(result)
 
 
+def _format_violation_review(violation: dict, index: int, total: int) -> str:
+    """Format one flagged edit for interactive review."""
+    lines = [
+        f"Edit {index} of {total}:",
+        f"  Reason: {violation.get('reason', '(no reason given)')}",
+        f"  original: {violation.get('original', '')}",
+        f"  tailored: {violation.get('tailored', '')}",
+    ]
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 # Shared CLI helper — validation report + interactive revert prompt
 # ---------------------------------------------------------------------------
@@ -158,11 +165,11 @@ def report_and_maybe_revert(
 ) -> str:
     """
     Print the validation summary and, if the judge flagged unsupported edits,
-    interactively prompt to revert those bullets to their originals.
+    walk the user through each flagged bullet and ask whether to revert it.
 
     Shared by every CLI entry point (main.py's job_processor and llm_client's
     standalone CLI) so the revert UX stays identical in one place. Returns the
-    tailored Markdown, reverted in-place if the user opts in.
+    tailored Markdown, with any user-approved reverts applied in-place.
 
     input_fn defaults to the builtin input(), resolved at call time (not
     bound at import time) so tests can monkeypatch builtins.input.
@@ -176,14 +183,25 @@ def report_and_maybe_revert(
     if input_fn is None:
         input_fn = input
 
-    print()
-    try:
-        answer = input_fn("Revert flagged bullets to originals? [y/N] ").strip().lower()
-    except EOFError:
-        answer = "n"
+    print("\n--- Review flagged edits ---\n")
+    to_revert: list[dict] = []
+    total = len(result.violations)
 
-    if answer == "y":
-        tailored_md = revert_violations(tailored_md, result.violations)
-        print("Reverted violations to originals.")
+    for i, violation in enumerate(result.violations, start=1):
+        print(_format_violation_review(violation, i, total))
+        try:
+            answer = input_fn(
+                "Revert this bullet to original? [y/N] "
+            ).strip().lower()
+        except EOFError:
+            print()
+            break
+        if answer == "y":
+            to_revert.append(violation)
+        print()
+
+    if to_revert:
+        tailored_md = revert_violations(tailored_md, to_revert)
+        print(f"Reverted {len(to_revert)} edit(s) to originals.")
 
     return tailored_md

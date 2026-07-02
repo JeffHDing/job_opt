@@ -1,27 +1,35 @@
-Data Scientist – Risk & Fraud Intelligence
-Stripe | San Francisco, CA (Hybrid)
+Data Scientist
+Who we are
+About Stripe
+Stripe is a financial infrastructure platform for businesses. Millions of companies—from the world's largest enterprises to the most ambitious startups—use Stripe to accept payments, grow their revenue, and accelerate new business opportunities. Our mission is to increase the GDP of the internet, and we have a staggering amount of work ahead. That means you have an unprecedented opportunity to put the global economy within everyone's reach while doing the most important work of your career.
 
-About the Role
-Stripe's Risk team keeps the payment network safe for millions of businesses. We're looking for a Data Scientist to build machine learning models and data pipelines that detect fraud, reduce false positives, and protect merchant revenue. You'll work closely with engineers, product managers, and analysts to turn raw transaction signals into production ML systems.
+About the team
+Our Data Science team partners deeply with teams across Stripe to ensure that our users, our products, and our business have the models, data products, and insights needed to make decisions and grow responsibly. We're looking for data scientists with a passion for analyzing data, building machine learning and statistical models, and running experiments to drive impact. Our work is broad and varied, influencing how our products work (e.g., understanding user needs, preventing fraud, or optimizing charge flows), how our business works (forecasting key outcomes, managing liquidity, and quantifying risk exposure), how our go-to-market motions operate (designing growth experiments, optimizing marketing investments, refining sales processes, and estimating causal effects), and everything in between. We have a variety of Data Science roles and teams across Stripe and will seek to align you to the most relevant team based on your background.
 
-Responsibilities
-- Design, train, and deploy supervised and unsupervised ML models (gradient boosting, neural networks) for real-time fraud detection.
-- Write production-quality Python and SQL to build feature pipelines on large-scale transaction datasets stored in PostgreSQL and data warehouses (BigQuery / Redshift).
-- Run rigorous A/B experiments to measure the lift of new model versions and communicate results to non-technical stakeholders.
-- Perform exploratory data analysis (EDA) on terabytes of transaction logs to surface novel fraud patterns.
-- Collaborate with engineering to integrate model outputs into low-latency APIs serving thousands of requests per second.
-- Monitor model performance in production; own alerting dashboards and data visualisation in Tableau / Looker.
-- Mentor junior data scientists and review code in pull requests.
+What you'll do
+We're looking for a variety of Data Scientists to partner with the Product, Finance, Payments, Security, Risk, Growth, and Go-to-Market teams. You'll work closely with a specific part of the business, playing a crucial role in optimizing our systems and leveraging data to make strategic business decisions. As Data Scientists at Stripe, it's our mission to ensure that the company strategy, products, and user interactions make smart use of our rich data, using techniques like machine learning, statistical modeling, causal inference, optimization, experimentation, and all forms of analytics.
 
-Requirements
-- 3+ years of industry experience in data science or machine learning.
-- Strong Python skills (pandas, scikit-learn, XGBoost, PyTorch or TensorFlow).
-- Proficiency in SQL and experience with large-scale data warehousing.
-- Solid understanding of statistical modelling, experimental design, and causal inference.
-- Experience deploying ML models to production environments (Docker, REST APIs, or ML platforms).
-- Excellent communication skills — ability to translate complex analyses into clear business recommendations.
+Who you are
+We're looking for someone who meets the minimum requirements to be considered for the role. If you meet these requirements, you are encouraged to apply. The preferred qualifications are a bonus, not a requirement.
 
-Nice to Have
-- Experience with payments, fintech, or fraud/risk domains.
-- Familiarity with streaming data (Kafka, Flink) or graph-based fraud detection.
-- Knowledge of MLflow, Vertex AI, or similar experiment-tracking / model-registry tooling.
+Minimum requirements
+PhD with 3 years, MS or MA with 6 years, or BS or BA with 8 years of data science or quantitative modeling experience
+Proficiency in SQL and a computing language such as Python or R
+Experience in working with cross-functional teams to deliver results
+Ability to communicate results clearly and a focus on driving impact
+A demonstrated ability to manage and deliver on multiple projects with a high attention to detail
+Strong business acumen and experience in synthesizing complex analyses into actionable recommendations
+Proficiency with AI tools to accelerate model development, analysis, and coding
+Preferred qualifications
+Strong knowledge and hands-on experience in several of the following areas: machine learning, statistics, optimization, product analytics, causal inference, and experimentation
+Experience deploying models in production and adjusting model thresholds to improve performance
+Experience designing, running, and analyzing complex experiments or leveraging causal inference designs
+A builder's mindset with a willingness to question assumptions and conventional wisdom
+Experience with distributed tools such as Spark, Hadoop, etc.
+A PhD or MS in a quantitative field (e.g., Statistics, Engineering, Mathematics, Economics, Quantitative Finance, Sciences, Operations Research)
+In-office expectations
+Office-assigned Stripes in most of our locations are currently expected to spend at least 50% of the time in a given month in their local office or with users. This expectation may vary depending on role, team and location. For example, Stripes in Stripe Delivery Center roles in Mexico City, Mexico, Bengaluru, India, and Dublin, Ireland work 100% from the office. Also, some teams have greater in-office attendance requirements, to appropriately support our users and workflows, which the hiring manager will discuss. This approach helps strike a balance between bringing people together for in-person collaboration and learning from each other, while supporting flexibility when possible.
+Pay and benefits
+The annual salary range for this role in the primary location is CA$172,500 - CA$258,700. This range may change if you are hired in another location. For sales roles, the range provided is the role’s On Target Earnings (“OTE”) range, meaning that the range includes both the sales commissions/sales bonuses target and annual base salary for the role. This salary range may be inclusive of several career levels at Stripe and will be narrowed during the interview process based on a number of factors, including the candidate’s experience, qualifications, and specific location. Applicants interested in this role and who are not located in the primary location may request the annual salary range for their location during the interview process.
+
+Specific benefits and details about what compensation is included in the salary range listed above will vary depending on the applicant’s location and can be discussed in more detail during the interview process. Benefits/additional compensation for this role may include: equity, company bonus or sales commissions/bonuses; retirement plans; health benefits; and wellness stipends.

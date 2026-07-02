@@ -100,7 +100,7 @@ python main.py --company Stripe --role Data_Scientist \
 
 Outputs are saved to `data/tailored_outputs/YYYYMMDD_{Company}_{Role}.md` and `.pdf`.
 
-When the judge flags unsupported edits, the CLI prompts you to revert those bullets to their originals before writing the files.
+When the judge flags unsupported edits, the CLI walks you through each flagged bullet and asks whether to revert it before writing the files.
 
 ### All options
 
@@ -138,7 +138,7 @@ tailor a resume without exporting a PDF (useful for quick iteration); see
 1. **Tailor** — `llm_client.tailor_resume()` sends the master resume + job description to `gemini-3.1-flash-lite` with the system prompt in `prompts/tailor_system.txt`: preserve structure, reorder bullets, substitute keywords only when directly supported by the original text.
 2. **Diff** — `resume_diff.find_changed_bullets()` compares the tailored output against the master and extracts only the changed bullets (original + tailored pairs).
 3. **Validate** — A second Gemini call (prompt in `prompts/judge_system.txt`) reviews the changed bullets and the job description, flagging any edits that add unsupported claims.
-4. **Report + revert** — `resume_diff.report_and_maybe_revert()` prints the validation summary and, if violations were found, prompts to revert flagged bullets to their originals. This is shared by both `job_processor.py` and `llm_client.py`'s standalone CLI.
+4. **Report + revert** — `resume_diff.report_and_maybe_revert()` prints the validation summary and, if violations were found, prompts bullet-by-bullet to revert each flagged edit to its original. This is shared by both `job_processor.py` and `llm_client.py`'s standalone CLI.
 5. **Export** — `pdf_exporter.generate_resume_pdf()` converts the final Markdown to a single-page Letter PDF via WeasyPrint (no floats, no images — purely linear for ATS parsing).
 
 Separately, `llm_client.review_resume()` (prompt in `prompts/editor_system.txt`) runs a senior-recruiter "editor" pass over the master resume and job description, producing a standalone feedback report — see [Getting recruiter-style feedback](#getting-recruiter-style-feedback-editor-agent) above. It does not currently feed into the tailor/validate/export pipeline.

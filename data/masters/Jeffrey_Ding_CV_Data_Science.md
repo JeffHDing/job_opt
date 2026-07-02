@@ -12,15 +12,15 @@
 
 ## Education
 
-**University of British Columbia** | *Master of Data Science* | 2025 - 2026
+**University of British Columbia** | _Master of Data Science_ | 2025 - 2026
 
-**University of Western Ontario** | *Bachelor of Medical Sciences* | 2017 - 2021
+**University of Western Ontario** | _Bachelor of Medical Sciences_ | 2017 - 2021
 
 ## Experience
 
 ### Sunnybrook Research Institute
 
-*Data Manager* | Feb 2022 - Feb 2024
+_Data Manager_ | Feb 2022 - Feb 2024
 
 - Abstracted unstructured data from 250+ patients to evaluate wellness and determine treatment efficacy.
 - Increased trial participation by an estimated 40% by aggregating and screening new patient data.
@@ -30,7 +30,7 @@
 
 ### University Health Network (UHN)
 
-*Summer Undergraduate Researcher* | May 2019 - Aug 2019
+_Summer Undergraduate Researcher_ | May 2019 - Aug 2019
 
 - Performed regression on open-source data to correlate comorbidities and clinical trial participation.
 - Investigated provincial healthcare data to optimize the transition of cancer survivors to primary care.
@@ -38,7 +38,7 @@
 
 ### University of Toronto
 
-*Machine Learning for Life Science Mentorship* | Jun 2024 - Jul 2025
+_Machine Learning for Life Science Mentorship_ | Jun 2024 - Jul 2025
 
 - Partnered with researchers as a volunteer clinical research coordinator consultant.
 - Applied learned machine learning and deep learning concepts towards developing independent projects.
