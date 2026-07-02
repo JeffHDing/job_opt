@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from pdf_exporter import generate_resume_pdf
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
-_TEMPLATE = _PROJECT_ROOT / "data/templates/Jeffrey_Ding_CV_Data_Science.md"
+_TEMPLATE = _PROJECT_ROOT / "data/masters/Jeffrey_Ding_CV_Data_Science.md"
 
 _MINIMAL_MD = """\
 # Jane Smith

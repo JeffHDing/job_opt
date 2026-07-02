@@ -1,10 +1,10 @@
 """
 Unit tests for resume_diff.py.
 
-No network calls, no API keys required — runs instantly with pytest.
 """
 import sys
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -16,6 +16,7 @@ from resume_diff import (
     _token_overlap,
     find_changed_bullets,
     parse_bullets,
+    report_and_maybe_revert,
     revert_violations,
 )
 
@@ -266,3 +267,59 @@ class TestValidationResultSummary:
             passed=False, violations=[{"original": "a", "tailored": "b"}]
         )
         assert "(no reason given)" in r.summary()
+
+
+# ---------------------------------------------------------------------------
+# report_and_maybe_revert
+# ---------------------------------------------------------------------------
+
+class TestReportAndMaybeRevert:
+    def test_passed_result_returns_unchanged_without_prompting(self, capsys):
+        result = ValidationResult(passed=True, violations=[])
+        input_fn = MagicMock(side_effect=AssertionError("should not prompt"))
+        out = report_and_maybe_revert("# Resume\n- bullet\n", result, input_fn=input_fn)
+        assert out == "# Resume\n- bullet\n"
+        input_fn.assert_not_called()
+        assert "Validation Report" in capsys.readouterr().out
+
+    def test_skipped_result_returns_unchanged_without_prompting(self):
+        result = ValidationResult(passed=False, skipped=True, skip_reason="timeout")
+        input_fn = MagicMock(side_effect=AssertionError("should not prompt"))
+        out = report_and_maybe_revert("# Resume\n- bullet\n", result, input_fn=input_fn)
+        assert out == "# Resume\n- bullet\n"
+        input_fn.assert_not_called()
+
+    def test_failed_result_user_accepts_revert(self, capsys):
+        md = "## S\n- bad bullet\n"
+        violations = [{"original": "good bullet", "tailored": "bad bullet"}]
+        result = ValidationResult(passed=False, violations=violations)
+        out = report_and_maybe_revert(md, result, input_fn=lambda _: "y")
+        assert "- good bullet" in out
+        assert "bad bullet" not in out
+        assert "Reverted violations to originals." in capsys.readouterr().out
+
+    def test_failed_result_user_declines_revert(self):
+        md = "## S\n- bad bullet\n"
+        violations = [{"original": "good bullet", "tailored": "bad bullet"}]
+        result = ValidationResult(passed=False, violations=violations)
+        out = report_and_maybe_revert(md, result, input_fn=lambda _: "n")
+        assert out == md
+
+    def test_failed_result_eof_on_input_defaults_to_no(self):
+        md = "## S\n- bad bullet\n"
+        violations = [{"original": "good bullet", "tailored": "bad bullet"}]
+        result = ValidationResult(passed=False, violations=violations)
+
+        def _raise(_):
+            raise EOFError
+
+        out = report_and_maybe_revert(md, result, input_fn=_raise)
+        assert out == md
+
+    def test_default_input_fn_is_builtin_input(self, monkeypatch):
+        md = "## S\n- bad bullet\n"
+        violations = [{"original": "good bullet", "tailored": "bad bullet"}]
+        result = ValidationResult(passed=False, violations=violations)
+        monkeypatch.setattr("builtins.input", lambda _: "y")
+        out = report_and_maybe_revert(md, result)
+        assert "- good bullet" in out

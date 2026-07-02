@@ -13,7 +13,7 @@ from resume_diff import (
     BulletChange,
     ValidationResult,
     find_changed_bullets,
-    revert_violations,
+    report_and_maybe_revert,
 )
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -100,15 +100,9 @@ def tailor_resume(
     master_resume_md: str,
     job_description: str,
     validate: bool = True,
-    editor_feedback: str | None = None,
 ) -> tuple[str, ValidationResult]:
     """
     Tailor a master resume to a job description using Gemini.
-
-    If editor_feedback is provided (e.g. the Markdown report returned by
-    review_resume()), it is passed to the model as prioritized recruiter
-    guidance that it should apply wherever consistent with the no-fabrication
-    rules baked into the tailor system prompt.
 
     Returns (tailored_markdown, ValidationResult). When validate=True a second
     judge call reviews only the changed bullets; on any judge failure the result
@@ -122,11 +116,6 @@ def tailor_resume(
         "## Job Description\n\n"
         f"{job_description.strip()}"
     )
-    if editor_feedback and editor_feedback.strip():
-        user_message += (
-            "\n\n## Recruiter Feedback\n\n"
-            f"{editor_feedback.strip()}"
-        )
 
     response = _with_retry(lambda: client.models.generate_content(
         model=_TAILOR_MODEL,
@@ -266,7 +255,7 @@ def _cli_main(argv: list[str] | None = None) -> None:
     import datetime
     import sys
 
-    _DEFAULT_RESUME = _PROJECT_ROOT / "data/templates/Jeffrey_Ding_CV_Data_Science.md"
+    _DEFAULT_RESUME = _PROJECT_ROOT / "data/masters/Jeffrey_Ding_CV_Data_Science.md"
 
     parser = argparse.ArgumentParser(
         description="Tailor a Markdown resume to a job description using Gemini.",
@@ -342,7 +331,11 @@ def _cli_main(argv: list[str] | None = None) -> None:
 
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(feedback)
-        print(f"\nReview feedback saved → {out_path.relative_to(_PROJECT_ROOT)}")
+        try:
+            display = out_path.relative_to(_PROJECT_ROOT)
+        except ValueError:
+            display = out_path
+        print(f"\nReview feedback saved → {display}")
         return
 
     suffix = "" if args.no_validate else " + validate"
@@ -353,20 +346,7 @@ def _cli_main(argv: list[str] | None = None) -> None:
         validate=not args.no_validate,
     )
 
-    print("\n--- Validation Report ---\n")
-    print(result.summary())
-
-    if not result.passed and not result.skipped:
-        print()
-        try:
-            raw = input("Revert flagged bullets to originals? [y/N] ")
-            answer = raw.strip().lower()
-        except EOFError:
-            answer = "n"
-
-        if answer == "y":
-            tailored = revert_violations(tailored, result.violations)
-            print("Reverted violations to originals.")
+    tailored = report_and_maybe_revert(tailored, result)
 
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)

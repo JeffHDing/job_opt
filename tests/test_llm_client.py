@@ -27,7 +27,7 @@ pytestmark = pytest.mark.integration
 
 @pytest.fixture(scope="module")
 def master_md() -> str:
-    path = _PROJECT_ROOT / "data/templates/Jeffrey_Ding_CV_Data_Science.md"
+    path = _PROJECT_ROOT / "data/masters/Jeffrey_Ding_CV_Data_Science.md"
     if not path.exists():
         pytest.skip(f"Master resume not found: {path}")
     return path.read_text()
@@ -123,14 +123,3 @@ class TestReviewResume:
         for heading in expected_headings:
             assert heading in editor_feedback
 
-    def test_feedback_can_guide_tailoring(self, master_md, sample_jd, editor_feedback):
-        t0 = time.perf_counter()
-        tailored, result = tailor_resume(
-            master_md, sample_jd, editor_feedback=editor_feedback
-        )
-        elapsed = time.perf_counter() - t0
-        msg = f"\n  [test_feedback_can_guide_tailoring] elapsed: {elapsed:.2f}s"
-        print(msg, flush=True)
-        assert isinstance(tailored, str)
-        assert len(tailored) > 100
-        assert isinstance(result.passed, bool)

@@ -13,7 +13,6 @@ markers = [
 
 [tool.coverage.run]
 source = ["src"]
-omit = ["src/job_processor.py", "src/masters_manager.py"]
 
 [tool.coverage.report]
 show_missing = true

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from typing import Callable
 
 # ---------------------------------------------------------------------------
 # Data types
@@ -144,3 +145,45 @@ def revert_violations(tailored_md: str, violations: list[dict]) -> str:
         result.append(raw_line)
 
     return "".join(result)
+
+
+# ---------------------------------------------------------------------------
+# Shared CLI helper — validation report + interactive revert prompt
+# ---------------------------------------------------------------------------
+
+def report_and_maybe_revert(
+    tailored_md: str,
+    result: ValidationResult,
+    input_fn: Callable[[str], str] | None = None,
+) -> str:
+    """
+    Print the validation summary and, if the judge flagged unsupported edits,
+    interactively prompt to revert those bullets to their originals.
+
+    Shared by every CLI entry point (main.py's job_processor and llm_client's
+    standalone CLI) so the revert UX stays identical in one place. Returns the
+    tailored Markdown, reverted in-place if the user opts in.
+
+    input_fn defaults to the builtin input(), resolved at call time (not
+    bound at import time) so tests can monkeypatch builtins.input.
+    """
+    print("\n--- Validation Report ---\n")
+    print(result.summary())
+
+    if result.passed or result.skipped:
+        return tailored_md
+
+    if input_fn is None:
+        input_fn = input
+
+    print()
+    try:
+        answer = input_fn("Revert flagged bullets to originals? [y/N] ").strip().lower()
+    except EOFError:
+        answer = "n"
+
+    if answer == "y":
+        tailored_md = revert_violations(tailored_md, result.violations)
+        print("Reverted violations to originals.")
+
+    return tailored_md

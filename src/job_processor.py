@@ -1,10 +1,9 @@
 import datetime
-import sys
 from pathlib import Path
 
 from llm_client import tailor_resume
 from pdf_exporter import generate_resume_pdf
-from resume_diff import revert_violations
+from resume_diff import report_and_maybe_revert
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _DEFAULT_RESUME = _PROJECT_ROOT / "data/masters/Jeffrey_Ding_CV_Data_Science.md"
@@ -21,12 +20,13 @@ def process_application(
     """
     Full pipeline: tailor master resume → validate → export PDF.
 
-    Returns (md_path, pdf_path).
+    Returns (md_path, pdf_path). Raises FileNotFoundError if resume_path
+    doesn't exist — callers (e.g. main.py) are responsible for turning that
+    into a user-facing CLI error.
     """
     resume_path = Path(resume_path) if resume_path else _DEFAULT_RESUME
     if not resume_path.exists():
-        print(f"error: resume not found: {resume_path}", file=sys.stderr)
-        sys.exit(1)
+        raise FileNotFoundError(f"resume not found: {resume_path}")
 
     master_md = resume_path.read_text()
 
@@ -43,31 +43,19 @@ def process_application(
         validate=validate,
     )
 
-    # 2. Print validation report
-    print("\n--- Validation Report ---\n")
-    print(result.summary())
+    # 2. Report + offer revert if judge found violations
+    tailored_md = report_and_maybe_revert(tailored_md, result)
 
-    # 3. Offer revert if judge found violations
-    if not result.passed and not result.skipped:
-        print()
-        try:
-            answer = (
-                input("Revert flagged bullets to originals? [y/N] ")
-                .strip()
-                .lower()
-            )
-        except EOFError:
-            answer = "n"
-        if answer == "y":
-            tailored_md = revert_violations(tailored_md, result.violations)
-            print("Reverted violations to originals.")
-
-    # 4. Write outputs
+    # 3. Write outputs
     md_path = _OUTPUT_DIR / f"{stem}.md"
     pdf_path = _OUTPUT_DIR / f"{stem}.pdf"
 
     md_path.write_text(tailored_md)
-    print(f"\nMarkdown saved → {md_path.relative_to(_PROJECT_ROOT)}")
+    try:
+        display = md_path.relative_to(_PROJECT_ROOT)
+    except ValueError:
+        display = md_path
+    print(f"\nMarkdown saved → {display}")
 
     generate_resume_pdf(tailored_md, str(pdf_path))
 

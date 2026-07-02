@@ -65,13 +65,17 @@ def main() -> None:
 
     print(f"\nTailoring resume for {args.role} at {args.company}...\n")
 
-    md_path, pdf_path = process_application(
-        job_description=job_description,
-        company=args.company,
-        role=args.role,
-        resume_path=args.resume,
-        validate=not args.no_validate,
-    )
+    try:
+        md_path, pdf_path = process_application(
+            job_description=job_description,
+            company=args.company,
+            role=args.role,
+            resume_path=args.resume,
+            validate=not args.no_validate,
+        )
+    except FileNotFoundError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        sys.exit(1)
 
     print(f"\nDone!  PDF → {pdf_path.relative_to(Path(__file__).parent)}")
 

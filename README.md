@@ -11,21 +11,24 @@ An LLM-powered CLI tool that tailors a master Markdown resume to a specific job 
 
 ```
 job_opt/
-├── main.py                          # Top-level CLI entry point
+├── main.py                          # Top-level CLI entry point: tailor + validate + PDF
 ├── src/
 │   ├── job_processor.py             # Pipeline orchestrator: tailor → validate → PDF
-│   ├── llm_client.py                # Gemini API calls: tailor + judge validation
+│   ├── llm_client.py                # Gemini API calls (tailor/judge/editor) + standalone CLI
 │   ├── resume_diff.py               # Pure-Python bullet parser, differ, revert utils
 │   └── pdf_exporter.py              # Markdown → WeasyPrint PDF renderer
 ├── prompts/
 │   ├── tailor_system.txt            # System prompt for the tailor pass
-│   └── judge_system.txt             # System prompt for the judge pass
+│   ├── judge_system.txt             # System prompt for the judge pass
+│   └── editor_system.txt            # System prompt for the standalone editor/review pass
 ├── data/
 │   ├── masters/                     # Master resumes (source of truth)
 │   ├── job_descriptions/            # Job description text files
-│   └── tailored_outputs/            # Generated .md and .pdf files land here
+│   ├── tailored_outputs/            # Generated .md/.pdf land here (gitignored)
+│   └── review_feedback/             # Generated editor feedback reports (gitignored)
 ├── tests/
-│   ├── test_resume_diff.py          # Unit tests for bullet diff/revert logic
+│   ├── test_resume_diff.py          # Unit tests for bullet diff/revert/report logic
+│   ├── test_job_processor.py        # Unit tests for the pipeline orchestrator (mocked)
 │   ├── test_llm_client_unit.py      # Unit tests for llm_client (mocked API)
 │   ├── test_llm_client.py           # Integration tests (requires GEMINI_API_KEY)
 │   └── test_pdf_exporter.py         # PDF rendering tests
@@ -109,6 +112,25 @@ When the judge flags unsupported edits, the CLI prompts you to revert those bull
 | `--resume` | | `data/masters/Jeffrey_Ding_CV_Data_Science.md` | Master resume Markdown file |
 | `--no-validate` | | off | Skip the judge validation step |
 
+### Getting recruiter-style feedback (editor agent)
+
+`llm_client.py` also exposes a standalone CLI for the "editor" agent — a
+senior-recruiter persona that critiques your master resume against a job
+description and writes a blunt, structured Markdown feedback report (match
+analysis, quantification gaps, keyword gaps, STAR rewrites, ATS tips, and a
+ranked top-5 priority list). It's independent of the `main.py` tailor/PDF
+pipeline — nothing currently feeds this feedback back into tailoring.
+
+```bash
+python src/llm_client.py --review --resume data/masters/my_resume.md \
+                          --jd data/job_descriptions/stripe_ds.txt
+```
+
+Saves to `data/review_feedback/YYYYMMDD_HHMMSS_review_feedback.md` unless
+`--out FILE` is given. `llm_client.py` can also be run without `--review` to
+tailor a resume without exporting a PDF (useful for quick iteration); see
+`python src/llm_client.py --help` for its full flag set.
+
 ---
 
 ## How It Works
@@ -116,10 +138,12 @@ When the judge flags unsupported edits, the CLI prompts you to revert those bull
 1. **Tailor** — `llm_client.tailor_resume()` sends the master resume + job description to `gemini-3.1-flash-lite` with the system prompt in `prompts/tailor_system.txt`: preserve structure, reorder bullets, substitute keywords only when directly supported by the original text.
 2. **Diff** — `resume_diff.find_changed_bullets()` compares the tailored output against the master and extracts only the changed bullets (original + tailored pairs).
 3. **Validate** — A second Gemini call (prompt in `prompts/judge_system.txt`) reviews the changed bullets and the job description, flagging any edits that add unsupported claims.
-4. **Revert** — If violations are found, the CLI prompts to revert flagged bullets to their originals via `resume_diff.revert_violations()`.
+4. **Report + revert** — `resume_diff.report_and_maybe_revert()` prints the validation summary and, if violations were found, prompts to revert flagged bullets to their originals. This is shared by both `job_processor.py` and `llm_client.py`'s standalone CLI.
 5. **Export** — `pdf_exporter.generate_resume_pdf()` converts the final Markdown to a single-page Letter PDF via WeasyPrint (no floats, no images — purely linear for ATS parsing).
 
-Both Gemini calls retry automatically on 503 (overload) and 429 (rate-limit) with exponential backoff.
+Separately, `llm_client.review_resume()` (prompt in `prompts/editor_system.txt`) runs a senior-recruiter "editor" pass over the master resume and job description, producing a standalone feedback report — see [Getting recruiter-style feedback](#getting-recruiter-style-feedback-editor-agent) above. It does not currently feed into the tailor/validate/export pipeline.
+
+Every Gemini call retries automatically on 503 (overload) and 429 (rate-limit) with exponential backoff.
 
 ---
 
@@ -130,6 +154,7 @@ Pytest markers are defined in `pyproject.toml`:
 | Mark | File | Needs API key? | Speed |
 |---|---|---|---|
 | *(none)* | `test_resume_diff.py` | No | Fast |
+| *(none)* | `test_job_processor.py` | No | Fast |
 | *(none)* | `test_llm_client_unit.py` | No | Fast |
 | *(none)* | `test_pdf_exporter.py` | No | Fast |
 | `integration` | `test_llm_client.py` | Yes (`GEMINI_API_KEY`) | Slow (~24 s, costs API quota) |
@@ -140,6 +165,7 @@ pytest -m "not integration"
 
 # Individual modules
 pytest tests/test_resume_diff.py
+pytest tests/test_job_processor.py
 pytest tests/test_llm_client_unit.py
 pytest tests/test_pdf_exporter.py
 
@@ -150,7 +176,7 @@ pytest tests/test_llm_client.py -m integration -s
 pytest
 ```
 
-CI runs `ruff check .` and `pytest -m "not integration" --cov` on every push/PR to `main`.
+CI runs `ruff check .` and `pytest -m "not integration" --cov` on every push/PR to `main`. Coverage tracks all of `src/` — no modules are excluded.
 
 ---
 
@@ -160,8 +186,9 @@ CI runs `ruff check .` and `pytest -m "not integration" --cov` on every push/PR 
 |---|---|
 | `resume_diff.py` | Complete — fully unit-tested |
 | `pdf_exporter.py` | Complete — renders ATS-friendly PDF, unit-tested |
-| `llm_client.py` | Complete — tailor + judge + retry logic, unit- and integration-tested |
-| `job_processor.py` | Complete — full pipeline orchestrator |
+| `llm_client.py` | Complete — tailor + judge + editor(review) + retry logic, unit- and integration-tested |
+| `job_processor.py` | Complete — full pipeline orchestrator, unit-tested |
 | `main.py` | Complete — CLI entry point wired to full pipeline |
-| `prompts/` | Complete — tailor and judge system prompts externalized |
+| `prompts/` | Complete — tailor, judge, and editor system prompts externalized |
+| Editor feedback → tailor pipeline integration | Not implemented — `review_resume()` output is a standalone report only |
 | Job scraping (LinkedIn/Indeed) | Not yet implemented |

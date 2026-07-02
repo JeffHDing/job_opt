@@ -5,8 +5,8 @@
 
 ## Technical Skills
 
-**Data Analysis & Modeling:** EDA, Data Mining, Data Visualization, Data Warehousing, Data Modelling  
-**Machine Learning & AI:** Machine Learning, Deep Learning, Agentic Workflows, CNN, SVC, Predictive Modeling, Prompt Engineering, RAG  
+**Data Analysis & Modeling:** EDA, Data Visualization, Data Engineering, Data Modelling, Predictive Modeling
+**Machine Learning & AI:** Deep Learning, Agentic Workflows, CNN, SVC, Prompt Engineering, RAG  
 **Programming & Databases:** Python, R, JavaScript, PostgreSQL, IBM Db2, MongoDB  
 **Tools & Frameworks:** AWS, Git, CI/CD, TensorFlow, Keras, Streamlit, Jupyter, Folium, SPSS, Excel  
 
