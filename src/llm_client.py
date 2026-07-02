@@ -201,7 +201,11 @@ def _validate_changes(
 # CLI entrypoint
 # ---------------------------------------------------------------------------
 
-if __name__ == "__main__":
+def _cli_main(argv: list[str] | None = None) -> None:
+    """
+    Command-line entry point.  Pass *argv* to override sys.argv (useful in
+    tests); omit (or pass None) to use sys.argv as usual.
+    """
     import argparse
     import sys
 
@@ -239,7 +243,7 @@ if __name__ == "__main__":
         metavar="FILE",
         help="Write final Markdown to FILE instead of stdout",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if not args.resume.exists():
         print(f"error: resume not found: {args.resume}", file=sys.stderr)
@@ -289,3 +293,7 @@ if __name__ == "__main__":
     else:
         print("\n--- Tailored Resume ---\n")
         print(tailored)
+
+
+if __name__ == "__main__":
+    _cli_main()
