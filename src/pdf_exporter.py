@@ -46,10 +46,10 @@ def generate_resume_pdf(markdown_text: str, output_path: str):
     h1 + p {
         text-align: center;
         margin: 0 0 6px 0;
-        font-size: 12pt;
+        font-size: 10pt;
     }
     h2 {
-        font-size: 12pt;
+        font-size: 11pt;
         text-transform: uppercase;
         letter-spacing: 0.05em;
         border-bottom: 0.75pt solid #555555;
@@ -58,7 +58,7 @@ def generate_resume_pdf(markdown_text: str, output_path: str):
         page-break-after: avoid;
     }
     h3 {
-        font-size: 11pt;
+        font-size: 10pt;
         margin: 8px 0 1px 0;
         page-break-after: avoid;
     }
@@ -66,7 +66,7 @@ def generate_resume_pdf(markdown_text: str, output_path: str):
     h3 + p {
         margin: 0 0 2px 0;
         font-style: italic;
-        font-size: 10.5pt;
+        font-size: 10pt;
     }
     p {
         margin: 0 0 4px 0;

@@ -5,10 +5,10 @@
 
 ## Technical Skills
 
-**Data Analysis & Modeling:** EDA, Data Visualization, Data Engineering, Data Modelling, Predictive Modeling
+**Data Analysis & Modeling:** EDA, Data Visualization, Data Engineering, Data Modelling, Predictive Modeling  
 **Machine Learning & AI:** Deep Learning, Agentic Workflows, CNN, SVC, Prompt Engineering, RAG  
-**Programming & Databases:** Python, R, JavaScript, PostgreSQL, IBM Db2, MongoDB  
-**Tools & Frameworks:** AWS, Git, CI/CD, TensorFlow, Keras, Streamlit, Jupyter, Folium, SPSS, Excel  
+**Programming & Databases:** Python, R, JavaScript, PostgreSQL, IBM Db2, MongoDB, SPSS, Excel  
+**Tools & Frameworks:** AWS, Git, CI/CD, Experimental Design, A/B Testing, Causal Inference  
 
 ## Education
 

@@ -296,7 +296,7 @@ class TestReportAndMaybeRevert:
         out = report_and_maybe_revert(md, result, input_fn=lambda _: "y")
         assert "- good bullet" in out
         assert "bad bullet" not in out
-        assert "Reverted violations to originals." in capsys.readouterr().out
+        assert "Reverted 1 edit(s) to originals." in capsys.readouterr().out
 
     def test_failed_result_user_declines_revert(self):
         md = "## S\n- bad bullet\n"
@@ -305,7 +305,53 @@ class TestReportAndMaybeRevert:
         out = report_and_maybe_revert(md, result, input_fn=lambda _: "n")
         assert out == md
 
-    def test_failed_result_eof_on_input_defaults_to_no(self):
+    def test_failed_result_reverts_only_accepted_bullets(self, capsys):
+        md = (
+            "## S\n"
+            "- bad bullet one\n"
+            "- bad bullet two\n"
+        )
+        violations = [
+            {"original": "good bullet one", "tailored": "bad bullet one", "reason": "r1"},
+            {"original": "good bullet two", "tailored": "bad bullet two", "reason": "r2"},
+        ]
+        result = ValidationResult(passed=False, violations=violations)
+        answers = iter(["y", "n"])
+        out = report_and_maybe_revert(
+            md, result, input_fn=lambda _: next(answers)
+        )
+        assert "- good bullet one" in out
+        assert "- bad bullet two" in out
+        assert "bad bullet one" not in out
+        captured = capsys.readouterr().out
+        assert "Edit 1 of 2:" in captured
+        assert "Edit 2 of 2:" in captured
+        assert "Reverted 1 edit(s) to originals." in captured
+
+    def test_failed_result_eof_stops_review_without_reverting_rest(self):
+        md = (
+            "## S\n"
+            "- bad bullet one\n"
+            "- bad bullet two\n"
+        )
+        violations = [
+            {"original": "good bullet one", "tailored": "bad bullet one"},
+            {"original": "good bullet two", "tailored": "bad bullet two"},
+        ]
+        result = ValidationResult(passed=False, violations=violations)
+        prompts = iter(["y"])
+
+        def _input(_):
+            try:
+                return next(prompts)
+            except StopIteration:
+                raise EOFError
+
+        out = report_and_maybe_revert(md, result, input_fn=_input)
+        assert "- good bullet one" in out
+        assert "- bad bullet two" in out
+
+    def test_failed_result_eof_on_first_prompt_reverts_nothing(self):
         md = "## S\n- bad bullet\n"
         violations = [{"original": "good bullet", "tailored": "bad bullet"}]
         result = ValidationResult(passed=False, violations=violations)
