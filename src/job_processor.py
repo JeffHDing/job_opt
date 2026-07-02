@@ -43,7 +43,11 @@ def process_application(
     if not result.passed and not result.skipped:
         print()
         try:
-            answer = input("Revert flagged bullets to originals? [y/N] ").strip().lower()
+            answer = (
+                input("Revert flagged bullets to originals? [y/N] ")
+                .strip()
+                .lower()
+            )
         except EOFError:
             answer = "n"
         if answer == "y":
