@@ -16,7 +16,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from llm_client import tailor_resume  # noqa: E402
+from llm_client import review_resume, tailor_resume  # noqa: E402
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -91,3 +91,46 @@ class TestTailorResume:
         )
         for section in sections:
             assert section in tailored
+
+
+# ---------------------------------------------------------------------------
+# review_resume (editor agent)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def editor_feedback(master_md, sample_jd) -> str:
+    t0 = time.perf_counter()
+    feedback = review_resume(master_md, sample_jd)
+    elapsed = time.perf_counter() - t0
+    print(f"\n  [editor_feedback fixture] elapsed: {elapsed:.2f}s", flush=True)
+    return feedback
+
+
+class TestReviewResume:
+    def test_returns_nonempty_markdown(self, editor_feedback):
+        assert isinstance(editor_feedback, str)
+        assert len(editor_feedback) > 100
+
+    def test_includes_all_required_sections(self, editor_feedback):
+        expected_headings = (
+            "Match Analysis",
+            "Quantification",
+            "Keyword",
+            "STAR",
+            "ATS",
+            "Priorities",
+        )
+        for heading in expected_headings:
+            assert heading in editor_feedback
+
+    def test_feedback_can_guide_tailoring(self, master_md, sample_jd, editor_feedback):
+        t0 = time.perf_counter()
+        tailored, result = tailor_resume(
+            master_md, sample_jd, editor_feedback=editor_feedback
+        )
+        elapsed = time.perf_counter() - t0
+        msg = f"\n  [test_feedback_can_guide_tailoring] elapsed: {elapsed:.2f}s"
+        print(msg, flush=True)
+        assert isinstance(tailored, str)
+        assert len(tailored) > 100
+        assert isinstance(result.passed, bool)

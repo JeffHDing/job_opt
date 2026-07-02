@@ -30,10 +30,18 @@ def process_application(
 
     master_md = resume_path.read_text()
 
+    date_str = datetime.datetime.now().strftime("%Y%m%d")
+    stem = f"{date_str}_{company}_{role}"
+    _OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
     # 1. Tailor + optional judge validation
     suffix = "" if not validate else " + validate"
     print(f"Calling Gemini API (tailor{suffix})...", flush=True)
-    tailored_md, result = tailor_resume(master_md, job_description, validate=validate)
+    tailored_md, result = tailor_resume(
+        master_md,
+        job_description,
+        validate=validate,
+    )
 
     # 2. Print validation report
     print("\n--- Validation Report ---\n")
@@ -55,10 +63,6 @@ def process_application(
             print("Reverted violations to originals.")
 
     # 4. Write outputs
-    date_str = datetime.datetime.now().strftime("%Y%m%d")
-    stem = f"{date_str}_{company}_{role}"
-    _OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
     md_path = _OUTPUT_DIR / f"{stem}.md"
     pdf_path = _OUTPUT_DIR / f"{stem}.pdf"
 

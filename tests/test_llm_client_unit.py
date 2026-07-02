@@ -19,6 +19,7 @@ from llm_client import (  # noqa: E402
     _get_client,
     _validate_changes,
     _with_retry,
+    review_resume,
     tailor_resume,
 )
 from resume_diff import BulletChange, ValidationResult  # noqa: E402
@@ -239,6 +240,79 @@ class TestTailorResume:
         assert result is validation
         assert "New bullet" in tailored
 
+    def test_editor_feedback_included_in_user_message(self):
+        client = self._mock_tailor_response("# Resume\n\n## Exp\n- bullet\n")
+        passed = ValidationResult(passed=True)
+        with patch("llm_client._get_client", return_value=client), \
+             patch("llm_client._validate_changes", return_value=passed):
+            tailor_resume(
+                "# Resume\n\n## Exp\n- bullet\n",
+                "jd",
+                validate=True,
+                editor_feedback="## 6. Top 5 Priorities\n1. Do X.",
+            )
+        sent_contents = client.models.generate_content.call_args.kwargs["contents"]
+        assert "Recruiter Feedback" in sent_contents
+        assert "Do X." in sent_contents
+
+    def test_no_editor_feedback_omits_section(self):
+        client = self._mock_tailor_response("# Resume\n\n## Exp\n- bullet\n")
+        passed = ValidationResult(passed=True)
+        with patch("llm_client._get_client", return_value=client), \
+             patch("llm_client._validate_changes", return_value=passed):
+            tailor_resume("# Resume\n\n## Exp\n- bullet\n", "jd", validate=True)
+        sent_contents = client.models.generate_content.call_args.kwargs["contents"]
+        assert "Recruiter Feedback" not in sent_contents
+
+    def test_blank_editor_feedback_omits_section(self):
+        client = self._mock_tailor_response("# Resume\n\n## Exp\n- bullet\n")
+        passed = ValidationResult(passed=True)
+        with patch("llm_client._get_client", return_value=client), \
+             patch("llm_client._validate_changes", return_value=passed):
+            tailor_resume(
+                "# Resume\n\n## Exp\n- bullet\n",
+                "jd",
+                validate=True,
+                editor_feedback="   ",
+            )
+        sent_contents = client.models.generate_content.call_args.kwargs["contents"]
+        assert "Recruiter Feedback" not in sent_contents
+
+
+# ---------------------------------------------------------------------------
+# review_resume (editor call)
+# ---------------------------------------------------------------------------
+
+class TestReviewResume:
+    def _mock_client(self, text: str) -> MagicMock:
+        client = MagicMock()
+        client.models.generate_content.return_value = _fake_response(text)
+        return client
+
+    def test_returns_stripped_model_text(self):
+        client = self._mock_client("  ## 1. Match Analysis\n...  \n")
+        with patch("llm_client._get_client", return_value=client):
+            feedback = review_resume("# Resume\n- bullet", "jd text")
+        assert feedback == "## 1. Match Analysis\n..."
+
+    def test_uses_editor_model_and_system_prompt(self):
+        client = self._mock_client("feedback")
+        with patch("llm_client._get_client", return_value=client):
+            review_resume("# Resume", "jd")
+        _, kwargs = client.models.generate_content.call_args
+        assert kwargs["model"] == llm_client._EDITOR_MODEL
+        assert kwargs["config"].system_instruction == llm_client._EDITOR_SYSTEM_PROMPT
+
+    def test_user_message_includes_resume_and_jd(self):
+        client = self._mock_client("feedback")
+        with patch("llm_client._get_client", return_value=client):
+            review_resume("# My Resume", "Looking for a Pythonista")
+        sent_contents = client.models.generate_content.call_args.kwargs["contents"]
+        assert "My Resume" in sent_contents
+        assert "Looking for a Pythonista" in sent_contents
+        assert "## Master Resume" in sent_contents
+        assert "## Job Description" in sent_contents
+
 
 # ---------------------------------------------------------------------------
 # _cli_main
@@ -391,3 +465,70 @@ class TestCLIMain:
             _cli_main(["--resume", str(resume)])
         out = capsys.readouterr().out
         assert "Paste job description" not in out
+
+    def test_review_flag_prints_feedback_and_skips_tailor(self, tmp_path, capsys):
+        resume = self._make_resume(tmp_path)
+        jd = self._make_jd(tmp_path)
+        with patch(
+            "llm_client.review_resume", return_value="## 1. Match Analysis\n..."
+        ) as mock_review, \
+             patch("llm_client.tailor_resume") as mock_tailor:
+            _cli_main(["--resume", str(resume), "--jd", str(jd), "--review"])
+        mock_review.assert_called_once()
+        mock_tailor.assert_not_called()
+        out = capsys.readouterr().out
+        assert "Editor Feedback" in out
+        assert "Match Analysis" in out
+
+    def test_review_flag_writes_to_out_file(self, tmp_path):
+        resume = self._make_resume(tmp_path)
+        jd = self._make_jd(tmp_path)
+        out_file = tmp_path / "feedback.md"
+        with patch("llm_client.review_resume", return_value="feedback text"), \
+             patch("llm_client.tailor_resume") as mock_tailor:
+            _cli_main([
+                "--resume", str(resume), "--jd", str(jd),
+                "--review", "--out", str(out_file),
+            ])
+        mock_tailor.assert_not_called()
+        assert out_file.read_text() == "feedback text"
+
+    def test_with_review_feeds_feedback_into_tailor(self, tmp_path):
+        resume = self._make_resume(tmp_path)
+        jd = self._make_jd(tmp_path)
+        validation = ValidationResult(passed=True, skipped=False)
+        validation.summary = MagicMock(return_value="OK")
+        with patch(
+            "llm_client.review_resume", return_value="## 6. Top 5 Priorities\n1. Fix X."
+        ) as mock_review, \
+             patch(
+                 "llm_client.tailor_resume", return_value=("# Out\n", validation)
+             ) as mock_tailor:
+            _cli_main(["--resume", str(resume), "--jd", str(jd), "--with-review"])
+        mock_review.assert_called_once()
+        mock_tailor.assert_called_once()
+        assert mock_tailor.call_args.kwargs["editor_feedback"] == (
+            "## 6. Top 5 Priorities\n1. Fix X."
+        )
+
+    def test_review_and_with_review_mutually_exclusive(self, tmp_path, capsys):
+        resume = self._make_resume(tmp_path)
+        jd = self._make_jd(tmp_path)
+        with pytest.raises(SystemExit):
+            _cli_main([
+                "--resume", str(resume), "--jd", str(jd),
+                "--review", "--with-review",
+            ])
+
+    def test_no_review_flags_passes_none_as_editor_feedback(self, tmp_path):
+        resume = self._make_resume(tmp_path)
+        jd = self._make_jd(tmp_path)
+        validation = ValidationResult(passed=True, skipped=False)
+        validation.summary = MagicMock(return_value="OK")
+        with patch("llm_client.review_resume") as mock_review, \
+             patch(
+                 "llm_client.tailor_resume", return_value=("# Out\n", validation)
+             ) as mock_tailor:
+            _cli_main(["--resume", str(resume), "--jd", str(jd)])
+        mock_review.assert_not_called()
+        assert mock_tailor.call_args.kwargs["editor_feedback"] is None

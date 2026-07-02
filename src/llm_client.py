@@ -79,14 +79,17 @@ def _with_retry(fn: Callable[[], Any]) -> Any:
 # Model config
 # ---------------------------------------------------------------------------
 # gemini-3.1-flash-lite: 500 RPD on free tier
-# Both calls in this script cost 2 requests per run → ~250 applications/day
+# tailor + judge cost 2 requests per run → ~250 applications/day.
+# Adding an editor review costs a 3rd request whenever it's requested.
 
 _TAILOR_MODEL = "gemini-3.1-flash-lite"
 _JUDGE_MODEL  = "gemini-3.1-flash-lite"
+_EDITOR_MODEL = "gemini-3.1-flash-lite"
 
 
 _TAILOR_SYSTEM_PROMPT = (_PROMPTS_DIR / "tailor_system.txt").read_text()
 _JUDGE_SYSTEM_PROMPT  = (_PROMPTS_DIR / "judge_system.txt").read_text()
+_EDITOR_SYSTEM_PROMPT = (_PROMPTS_DIR / "editor_system.txt").read_text()
 
 
 # ---------------------------------------------------------------------------
@@ -97,9 +100,15 @@ def tailor_resume(
     master_resume_md: str,
     job_description: str,
     validate: bool = True,
+    editor_feedback: str | None = None,
 ) -> tuple[str, ValidationResult]:
     """
     Tailor a master resume to a job description using Gemini.
+
+    If editor_feedback is provided (e.g. the Markdown report returned by
+    review_resume()), it is passed to the model as prioritized recruiter
+    guidance that it should apply wherever consistent with the no-fabrication
+    rules baked into the tailor system prompt.
 
     Returns (tailored_markdown, ValidationResult). When validate=True a second
     judge call reviews only the changed bullets; on any judge failure the result
@@ -113,6 +122,11 @@ def tailor_resume(
         "## Job Description\n\n"
         f"{job_description.strip()}"
     )
+    if editor_feedback and editor_feedback.strip():
+        user_message += (
+            "\n\n## Recruiter Feedback\n\n"
+            f"{editor_feedback.strip()}"
+        )
 
     response = _with_retry(lambda: client.models.generate_content(
         model=_TAILOR_MODEL,
@@ -198,8 +212,50 @@ def _validate_changes(
 
 
 # ---------------------------------------------------------------------------
+# Editor call
+# ---------------------------------------------------------------------------
+
+def review_resume(master_resume_md: str, job_description: str) -> str:
+    """
+    Run the "editor" agent: a senior technical recruiter persona with deep
+    domain knowledge of the job description who reviews the master resume
+    and returns a blunt, structured Markdown feedback report covering match
+    analysis, quantification gaps, missing/underused keywords, STAR rewrites
+    of the weakest bullets, ATS optimization tips, and a ranked top-5 list of
+    highest-impact changes.
+
+    The report is plain Markdown text, intentionally structured so it can be
+    handed straight to tailor_resume(..., editor_feedback=...) and acted on
+    by the tailor agent.
+    """
+    client = _get_client()
+
+    user_message = (
+        "## Master Resume\n\n"
+        f"{master_resume_md.strip()}\n\n"
+        "## Job Description\n\n"
+        f"{job_description.strip()}"
+    )
+
+    response = _with_retry(lambda: client.models.generate_content(
+        model=_EDITOR_MODEL,
+        config=types.GenerateContentConfig(
+            system_instruction=_EDITOR_SYSTEM_PROMPT,
+            temperature=0.4,
+            max_output_tokens=8192,
+        ),
+        contents=user_message,
+    ))
+
+    return response.text.strip()
+
+
+# ---------------------------------------------------------------------------
 # CLI entrypoint
 # ---------------------------------------------------------------------------
+
+_REVIEW_FEEDBACK_DIR = _PROJECT_ROOT / "data/review_feedback"
+
 
 def _cli_main(argv: list[str] | None = None) -> None:
     """
@@ -207,6 +263,7 @@ def _cli_main(argv: list[str] | None = None) -> None:
     tests); omit (or pass None) to use sys.argv as usual.
     """
     import argparse
+    import datetime
     import sys
 
     _DEFAULT_RESUME = _PROJECT_ROOT / "data/templates/Jeffrey_Ding_CV_Data_Science.md"
@@ -243,6 +300,15 @@ def _cli_main(argv: list[str] | None = None) -> None:
         metavar="FILE",
         help="Write final Markdown to FILE instead of stdout",
     )
+    parser.add_argument(
+        "--review",
+        action="store_true",
+        help=(
+            "Run only the editor (senior recruiter) review and save the "
+            "feedback report to data/review_feedback/ (or --out if specified); "
+            "skip tailoring"
+        ),
+    )
     args = parser.parse_args(argv)
 
     if not args.resume.exists():
@@ -262,6 +328,22 @@ def _cli_main(argv: list[str] | None = None) -> None:
     if not jd_text.strip():
         print("error: job description is empty", file=sys.stderr)
         sys.exit(1)
+
+    if args.review:
+        print("Calling Gemini API (editor review)...", flush=True)
+        feedback = review_resume(args.resume.read_text(), jd_text)
+
+        if args.out:
+            out_path = args.out
+        else:
+            _REVIEW_FEEDBACK_DIR.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            out_path = _REVIEW_FEEDBACK_DIR / f"{timestamp}_review_feedback.md"
+
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(feedback)
+        print(f"\nReview feedback saved → {out_path.relative_to(_PROJECT_ROOT)}")
+        return
 
     suffix = "" if args.no_validate else " + validate"
     print(f"Calling Gemini API (tailor{suffix})...", flush=True)
