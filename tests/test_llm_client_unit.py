@@ -9,11 +9,11 @@ from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
 import pytest
+from google.genai.errors import ClientError, ServerError
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import llm_client  # noqa: E402
-from google.genai.errors import ClientError, ServerError
 from llm_client import (  # noqa: E402
     _cli_main,
     _get_client,
@@ -55,7 +55,6 @@ def _fake_response(text: str) -> MagicMock:
 
 class TestGetClient:
     def setup_method(self):
-        # Reset singleton before every test
         llm_client._client = None
 
     def teardown_method(self):
@@ -80,7 +79,7 @@ class TestGetClient:
         with patch("llm_client.genai.Client", return_value=mock_client) as MockClient:
             first = _get_client()
             second = _get_client()
-        MockClient.assert_called_once()  # constructed only once
+        MockClient.assert_called_once()
         assert first is second
 
 
@@ -111,34 +110,29 @@ class TestWithRetry:
         mock_sleep.assert_called_once_with(5.0)
 
     def test_raises_immediately_on_non_retryable_server_error(self):
-        err = _server_err(500)
-        fn = MagicMock(side_effect=err)
+        fn = MagicMock(side_effect=_server_err(500))
         with patch("llm_client.time.sleep"):
             with pytest.raises(ServerError):
                 _with_retry(fn)
         fn.assert_called_once()
 
     def test_raises_immediately_on_non_retryable_client_error(self):
-        err = _client_err(400)
-        fn = MagicMock(side_effect=err)
+        fn = MagicMock(side_effect=_client_err(400))
         with patch("llm_client.time.sleep"):
             with pytest.raises(ClientError):
                 _with_retry(fn)
         fn.assert_called_once()
 
     def test_raises_after_max_retries_503(self):
-        err = _server_err(503)
-        fn = MagicMock(side_effect=err)
+        fn = MagicMock(side_effect=_server_err(503))
         with patch("llm_client.time.sleep") as mock_sleep:
             with pytest.raises(ServerError):
                 _with_retry(fn)
         assert fn.call_count == llm_client._RETRY_ATTEMPTS
-        # Exponential back-off: 5.0 then 10.0
         assert mock_sleep.call_args_list == [call(5.0), call(10.0)]
 
     def test_delay_doubles_between_retries(self):
-        err = _client_err(429)
-        fn = MagicMock(side_effect=err)
+        fn = MagicMock(side_effect=_client_err(429))
         delays = []
         with patch("llm_client.time.sleep", side_effect=lambda d: delays.append(d)):
             with pytest.raises(ClientError):
@@ -163,7 +157,10 @@ class TestValidateChanges:
         client.models.generate_content.assert_not_called()
 
     def test_all_supported_returns_passed(self):
-        verdicts = [{"supported": True, "bullet": "b1"}, {"supported": True, "bullet": "b2"}]
+        verdicts = [
+            {"supported": True, "bullet": "b1"},
+            {"supported": True, "bullet": "b2"},
+        ]
         client = self._mock_client(json.dumps(verdicts))
         changes = [BulletChange(section="Exp", original="old", tailored="new")]
         result = _validate_changes(changes, "jd text", client)
@@ -210,19 +207,20 @@ class TestTailorResume:
         client = self._mock_tailor_response("# Tailored\n\n- bullet")
         with patch("llm_client._get_client", return_value=client), \
              patch("llm_client._validate_changes") as mock_judge:
-            tailored, result = tailor_resume("# Master\n\n- bullet", "jd", validate=False)
+            tailored, result = tailor_resume(
+                "# Master\n\n- bullet", "jd", validate=False
+            )
         mock_judge.assert_not_called()
         assert result.skipped is True
         assert result.skip_reason == "validate=False"
         assert "Tailored" in tailored
 
     def test_validate_true_no_changes(self):
-        # tailored == master → no bullet changes → judge not invoked
         master = "# Resume\n\n## Exp\n- Same bullet\n"
         client = self._mock_tailor_response(master)
         with patch("llm_client._get_client", return_value=client), \
              patch("llm_client._validate_changes") as mock_judge:
-            tailored, result = tailor_resume(master, "jd", validate=True)
+            tailor_resume(master, "jd", validate=True)
         mock_judge.assert_called_once()
         changes_passed = mock_judge.call_args[0][0]
         assert changes_passed == []
@@ -233,7 +231,9 @@ class TestTailorResume:
         client = self._mock_tailor_response(tailored_text)
         validation = ValidationResult(passed=True)
         with patch("llm_client._get_client", return_value=client), \
-             patch("llm_client._validate_changes", return_value=validation) as mock_judge:
+             patch(
+                 "llm_client._validate_changes", return_value=validation
+             ) as mock_judge:
             tailored, result = tailor_resume(master, "jd", validate=True)
         mock_judge.assert_called_once()
         assert result is validation
@@ -247,19 +247,26 @@ class TestTailorResume:
 class TestCLIMain:
     """Tests for the _cli_main() function (CLI entry point)."""
 
-    def _make_resume(self, tmp_path: Path, content: str = "# Resume\n\n- bullet\n") -> Path:
+    def _make_resume(
+        self, tmp_path: Path, content: str = "# Resume\n\n- bullet\n"
+    ) -> Path:
         p = tmp_path / "resume.md"
         p.write_text(content)
         return p
 
-    def _make_jd(self, tmp_path: Path, content: str = "Looking for a Python dev.") -> Path:
+    def _make_jd(
+        self, tmp_path: Path, content: str = "Looking for a Python dev."
+    ) -> Path:
         p = tmp_path / "jd.txt"
         p.write_text(content)
         return p
 
     def test_resume_not_found_exits(self, tmp_path, capsys):
         with pytest.raises(SystemExit) as exc:
-            _cli_main(["--resume", str(tmp_path / "missing.md"), "--jd", str(tmp_path / "x.txt")])
+            _cli_main([
+                "--resume", str(tmp_path / "missing.md"),
+                "--jd", str(tmp_path / "x.txt"),
+            ])
         assert exc.value.code == 1
         assert "resume not found" in capsys.readouterr().err
 
@@ -284,7 +291,9 @@ class TestCLIMain:
         out = tmp_path / "output.md"
         validation = ValidationResult(passed=True, skipped=False)
         validation.summary = MagicMock(return_value="All good.")
-        with patch("llm_client.tailor_resume", return_value=("# Tailored\n", validation)):
+        with patch(
+            "llm_client.tailor_resume", return_value=("# Tailored\n", validation)
+        ):
             _cli_main(["--resume", str(resume), "--jd", str(jd), "--out", str(out)])
         assert out.exists()
         assert "Tailored" in out.read_text()
@@ -294,7 +303,9 @@ class TestCLIMain:
         jd = self._make_jd(tmp_path)
         validation = ValidationResult(passed=True, skipped=False)
         validation.summary = MagicMock(return_value="All good.")
-        with patch("llm_client.tailor_resume", return_value=("# Tailored\n", validation)):
+        with patch(
+            "llm_client.tailor_resume", return_value=("# Tailored\n", validation)
+        ):
             _cli_main(["--resume", str(resume), "--jd", str(jd)])
         out = capsys.readouterr().out
         assert "Tailored Resume" in out
@@ -303,13 +314,16 @@ class TestCLIMain:
     def test_no_validate_flag(self, tmp_path):
         resume = self._make_resume(tmp_path)
         jd = self._make_jd(tmp_path)
-        validation = ValidationResult(passed=True, skipped=True, skip_reason="validate=False")
+        validation = ValidationResult(
+            passed=True, skipped=True, skip_reason="validate=False"
+        )
         validation.summary = MagicMock(return_value="Skipped.")
-        with patch("llm_client.tailor_resume", return_value=("# Out\n", validation)) as mock_tr:
+        with patch(
+            "llm_client.tailor_resume", return_value=("# Out\n", validation)
+        ) as mock_tr:
             _cli_main(["--resume", str(resume), "--jd", str(jd), "--no-validate"])
-        _, _, kwargs = mock_tr.mock_calls[0]
-        assert kwargs.get("validate", mock_tr.call_args[1].get("validate")) is False or \
-               mock_tr.call_args[0][2] is False
+        # validate is always passed as a keyword arg by the CLI
+        assert mock_tr.call_args.kwargs["validate"] is False
 
     def test_violations_user_reverts(self, tmp_path, capsys):
         resume = self._make_resume(tmp_path)
@@ -318,7 +332,9 @@ class TestCLIMain:
         validation = ValidationResult(passed=False, violations=[violation])
         validation.summary = MagicMock(return_value="FAILED")
         with patch("llm_client.tailor_resume", return_value=("# Out\n", validation)), \
-             patch("llm_client.revert_violations", return_value="# Reverted\n") as mock_rv, \
+             patch(
+                 "llm_client.revert_violations", return_value="# Reverted\n"
+             ) as mock_rv, \
              patch("builtins.input", return_value="y"):
             _cli_main(["--resume", str(resume), "--jd", str(jd)])
         mock_rv.assert_called_once()
