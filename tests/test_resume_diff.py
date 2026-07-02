@@ -189,8 +189,16 @@ class TestRevertViolations:
     def test_reverts_multiple_violations(self):
         md = "## S\n- bad bullet one\n- bad bullet two\n"
         violations = [
-            {"original": "good bullet one", "tailored": "bad bullet one"},
-            {"original": "good bullet two", "tailored": "bad bullet two"},
+            {
+                "original": "good bullet one",
+                "tailored": "bad bullet one",
+                "reason": "r1",
+            },
+            {
+                "original": "good bullet two",
+                "tailored": "bad bullet two",
+                "reason": "r2",
+            },
         ]
         result = revert_violations(md, violations)
         assert "bad bullet one" not in result
@@ -312,8 +320,16 @@ class TestReportAndMaybeRevert:
             "- bad bullet two\n"
         )
         violations = [
-            {"original": "good bullet one", "tailored": "bad bullet one", "reason": "r1"},
-            {"original": "good bullet two", "tailored": "bad bullet two", "reason": "r2"},
+            {
+                "original": "good bullet one",
+                "tailored": "bad bullet one",
+                "reason": "r1",
+            },
+            {
+                "original": "good bullet two",
+                "tailored": "bad bullet two",
+                "reason": "r2",
+            },
         ]
         result = ValidationResult(passed=False, violations=violations)
         answers = iter(["y", "n"])
@@ -335,8 +351,16 @@ class TestReportAndMaybeRevert:
             "- bad bullet two\n"
         )
         violations = [
-            {"original": "good bullet one", "tailored": "bad bullet one"},
-            {"original": "good bullet two", "tailored": "bad bullet two"},
+            {
+                "original": "good bullet one",
+                "tailored": "bad bullet one",
+                "reason": "r1",
+            },
+            {
+                "original": "good bullet two",
+                "tailored": "bad bullet two",
+                "reason": "r2",
+            },
         ]
         result = ValidationResult(passed=False, violations=violations)
         prompts = iter(["y"])
@@ -353,7 +377,13 @@ class TestReportAndMaybeRevert:
 
     def test_failed_result_eof_on_first_prompt_reverts_nothing(self):
         md = "## S\n- bad bullet\n"
-        violations = [{"original": "good bullet", "tailored": "bad bullet"}]
+        violations = [
+            {
+                "original": "good bullet",
+                "tailored": "bad bullet",
+                "reason": "r",
+            }
+        ]
         result = ValidationResult(passed=False, violations=violations)
 
         def _raise(_):
