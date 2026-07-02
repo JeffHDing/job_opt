@@ -1,57 +1,80 @@
 import argparse
-import datetime
 import sys
+from pathlib import Path
 
-# from src.job_processor import process_application
+# src/ uses bare imports (e.g. `from resume_diff import ...`), so it must be
+# on sys.path before any src module is imported.
+sys.path.insert(0, str(Path(__file__).parent / "src"))
 
-def main():
-    """
-    The intuition behind this CLI entry point is to create a clean, 
-    interactive loop for the user. It isolates the messy terminal I/O 
-    from the clean business logic in your processing modules.
-    """
-    print("Job Opt: Resume Tailoring Engine")
-    
-    # 1. Setup argument parsing for structured input
+from job_processor import process_application  # noqa: E402
+
+_DEFAULT_RESUME = Path(__file__).parent / "data/masters/Jeffrey_Ding_CV_Data_Science.md"
+
+
+def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Tailor a master resume to a job description."
+        description="Tailor a master resume to a job description and export a PDF."
     )
     parser.add_argument(
-        "--company",
-        type=str,
+        "--company", "-c",
         required=True,
-        help="Name of the company (e.g., 'Google')",
+        metavar="NAME",
+        help="Company name (e.g. 'Stripe')",
     )
     parser.add_argument(
-        "--role",
-        type=str,
+        "--role", "-r",
         required=True,
-        help="Job title (e.g., 'Data_Scientist')",
+        metavar="TITLE",
+        help="Job title, underscores for spaces (e.g. 'Data_Scientist')",
     )
-    
+    parser.add_argument(
+        "--jd", "-j",
+        type=Path,
+        default=None,
+        metavar="FILE",
+        help="Path to job description file (omit to paste via stdin)",
+    )
+    parser.add_argument(
+        "--resume",
+        type=Path,
+        default=_DEFAULT_RESUME,
+        metavar="FILE",
+        help=f"Master resume Markdown (default: {_DEFAULT_RESUME.name})",
+    )
+    parser.add_argument(
+        "--no-validate",
+        action="store_true",
+        help="Skip the judge validation step (faster, 1 API call instead of 2)",
+    )
     args = parser.parse_args()
-    
-    print(f"\n[1] Preparing tailored application for {args.role} at {args.company}...")
-    
-    # 2. Capture multi-line job description
-    print("[2] Please paste the job description below.")
-    print("    (Press Enter, then Ctrl+D on Mac/Linux or Ctrl+Z on Windows to finish):")
-    job_description = sys.stdin.read().strip()
-    
-    if not job_description:
-        print("\nError: Job description cannot be empty. Exiting.")
-        return
 
-    # 3. Pass to the orchestrator (Mocked for now)
-    print("\n[3] Processing template through LLM and PDF pipeline...")
-    # process_application(job_description, args.company, args.role)
-    
-    # 4. Success state
-    date_str = datetime.datetime.now().strftime("%Y%m%d")
-    print(
-        f"\n[4] Success! Files saved to "
-        f"data/tailored_outputs/{date_str}_{args.company}_{args.role}.pdf"
+    # Read job description
+    if args.jd is not None:
+        if not args.jd.exists():
+            print(f"error: JD file not found: {args.jd}", file=sys.stderr)
+            sys.exit(1)
+        job_description = args.jd.read_text()
+    else:
+        if sys.stdin.isatty():
+            print("Paste job description, then press Ctrl-D (Ctrl-Z on Windows):")
+        job_description = sys.stdin.read()
+
+    if not job_description.strip():
+        print("error: job description is empty", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"\nTailoring resume for {args.role} at {args.company}...\n")
+
+    md_path, pdf_path = process_application(
+        job_description=job_description,
+        company=args.company,
+        role=args.role,
+        resume_path=args.resume,
+        validate=not args.no_validate,
     )
+
+    print(f"\nDone!  PDF → {pdf_path.relative_to(Path(__file__).parent)}")
+
 
 if __name__ == "__main__":
     main()

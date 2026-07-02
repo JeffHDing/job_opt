@@ -1,0 +1,27 @@
+Data Scientist – Risk & Fraud Intelligence
+Stripe | San Francisco, CA (Hybrid)
+
+About the Role
+Stripe's Risk team keeps the payment network safe for millions of businesses. We're looking for a Data Scientist to build machine learning models and data pipelines that detect fraud, reduce false positives, and protect merchant revenue. You'll work closely with engineers, product managers, and analysts to turn raw transaction signals into production ML systems.
+
+Responsibilities
+- Design, train, and deploy supervised and unsupervised ML models (gradient boosting, neural networks) for real-time fraud detection.
+- Write production-quality Python and SQL to build feature pipelines on large-scale transaction datasets stored in PostgreSQL and data warehouses (BigQuery / Redshift).
+- Run rigorous A/B experiments to measure the lift of new model versions and communicate results to non-technical stakeholders.
+- Perform exploratory data analysis (EDA) on terabytes of transaction logs to surface novel fraud patterns.
+- Collaborate with engineering to integrate model outputs into low-latency APIs serving thousands of requests per second.
+- Monitor model performance in production; own alerting dashboards and data visualisation in Tableau / Looker.
+- Mentor junior data scientists and review code in pull requests.
+
+Requirements
+- 3+ years of industry experience in data science or machine learning.
+- Strong Python skills (pandas, scikit-learn, XGBoost, PyTorch or TensorFlow).
+- Proficiency in SQL and experience with large-scale data warehousing.
+- Solid understanding of statistical modelling, experimental design, and causal inference.
+- Experience deploying ML models to production environments (Docker, REST APIs, or ML platforms).
+- Excellent communication skills — ability to translate complex analyses into clear business recommendations.
+
+Nice to Have
+- Experience with payments, fintech, or fraud/risk domains.
+- Familiarity with streaming data (Kafka, Flink) or graph-based fraud detection.
+- Knowledge of MLflow, Vertex AI, or similar experiment-tracking / model-registry tooling.

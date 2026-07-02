@@ -1,12 +1,12 @@
 # Jeffrey Ding
 
 **Data Scientist**
-647-928-5709 | [Email](mailto:jeffreyhding@gmail.com) | [LinkedIn](https://linkedin.com/in/jeffhding/) | [GitHub](https://github.com/JeffHDing)
+647-928-5709 | [_Email_](mailto:jeffreyhding@gmail.com) | [_LinkedIn_](https://linkedin.com/in/jeffhding/) | [_GitHub_](https://github.com/JeffHDing)
 
 ## Technical Skills
 
 **Data Analysis & Modeling:** EDA, Data Mining, Data Visualization, Data Warehousing, Data Modelling  
-**Machine Learning & AI:** Machine Learning, Deep Learning, Agentic Workflows, CNN, SVC, Regression  
+**Machine Learning & AI:** Machine Learning, Deep Learning, Agentic Workflows, CNN, SVC, Predictive Modeling, Prompt Engineering, RAG  
 **Programming & Databases:** Python, R, JavaScript, PostgreSQL, IBM Db2, MongoDB  
 **Tools & Frameworks:** AWS, Git, CI/CD, TensorFlow, Keras, Streamlit, Jupyter, Folium, SPSS, Excel  
 
@@ -45,7 +45,7 @@
 
 ## Projects
 
-### Detecting Diabetic Retinopathy with AI
+### Detecting Diabetic Retinopathy with CNNs
 
 - Preprocessed and analyzed retina scans utilizing a Convolutional Neural Network (CNN) and Residual blocks using Keras and TensorFlow 2.0 to improve early detection of retinopathy.
 
