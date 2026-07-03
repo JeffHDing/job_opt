@@ -5,8 +5,8 @@
 
 ## Technical Skills
 
-**Data Analysis & Modeling:** EDA, Data Visualization, Data Engineering, Data Modelling, Predictive Modeling  
-**Machine Learning & AI:** Deep Learning, Agentic Workflows, CNN, SVC, Prompt Engineering, RAG  
+**Data Analysis & Modeling:** EDA, Data Visualization, Data Engineering, Data Modelling, Predictive Modeling, Bayesian Inference, Time Series Analysis  
+**Machine Learning & AI:** Agentic Workflows, Computer Vision, Prompt Engineering, RAG, NLP, HMMs, LLMs  
 **Programming & Databases:** Python, R, JavaScript, PostgreSQL, IBM Db2, MongoDB, SPSS, Excel  
 **Tools & Frameworks:** AWS, Git, CI/CD, Experimental Design, A/B Testing, Causal Inference  
 
@@ -49,13 +49,17 @@ _Machine Learning for Life Science Mentorship_ | Jun 2024 - Jul 2025
 
 - Preprocessed and analyzed retina scans utilizing a Convolutional Neural Network (CNN) and Residual blocks using Keras and TensorFlow 2.0 to improve early detection of retinopathy.
 
+### Detecting Diabetic Retinopathy with CNNs
+
+- Preprocessed and analyzed retina scans utilizing a Convolutional Neural Network (CNN) and Residual blocks using Keras and TensorFlow 2.0 to improve early detection of retinopathy.
+
 ### Maternal Health Risk Classifier
 
 - Engineered a Support Vector Classifier (SVC) to predict maternal health risk tiers using processed IoT data, achieving 77% overall accuracy and 91% recall (0.943 AUC) for critical identification of at-risk mothers.
 
-### Filesystem Organizing API
+### Filesystem Organizing Python Package
 
-- Co-authored a Python API utilizing Git, CI/CD, and test-driven development to visualize file sizes and identify file bloat, guiding user file management.
+- Co-authored a Python package utilizing Git, CI/CD, and test-driven development to visualize file sizes and identify file bloat, guiding user file management.
 
 ### Interactive Dashboards & Web Apps
 
