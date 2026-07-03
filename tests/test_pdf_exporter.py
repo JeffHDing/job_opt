@@ -37,19 +37,10 @@ _MINIMAL_MD = """\
 
 
 class TestGenerateResumePdf:
-    def test_creates_output_file(self, tmp_path):
+    def test_creates_valid_pdf(self, tmp_path):
         out = tmp_path / "resume.pdf"
         generate_resume_pdf(_MINIMAL_MD, str(out))
         assert out.exists()
-
-    def test_output_is_nonempty(self, tmp_path):
-        out = tmp_path / "resume.pdf"
-        generate_resume_pdf(_MINIMAL_MD, str(out))
-        assert out.stat().st_size > 0
-
-    def test_output_is_valid_pdf(self, tmp_path):
-        out = tmp_path / "resume.pdf"
-        generate_resume_pdf(_MINIMAL_MD, str(out))
         assert out.read_bytes().startswith(b"%PDF-")
 
     def test_creates_parent_dirs(self, tmp_path):
