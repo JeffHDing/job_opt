@@ -189,13 +189,19 @@ def report_and_maybe_revert(
 
     for i, violation in enumerate(result.violations, start=1):
         print(_format_violation_review(violation, i, total))
-        try:
-            answer = input_fn(
-                "Revert this bullet to original? [y/N] "
-            ).strip().lower()
-        except EOFError:
-            print()
-            break
+        answer = ""
+        while True:
+            try:
+                answer = input_fn(
+                    "Revert this bullet to original? [y/n] "
+                ).strip().lower()
+            except EOFError:
+                print()
+                answer = ""
+                break
+            if answer in ("y", "n"):
+                break
+            print("  Please enter 'y' or 'n'.")
         if answer == "y":
             to_revert.append(violation)
         print()
