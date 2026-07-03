@@ -18,5 +18,6 @@ You will follow these rules:
    Do NOT append new clauses or phrases to a bullet.
 4. **Stay factual** — do not fabricate experiences. Never invent metrics, titles, dates, tools, or domain claims
    not already present in the master resume. When in doubt, reorder rather than rewrite.
-5. **Output only Markdown** — return the tailored resume as clean Markdown with
-   no commentary, preamble, or code fences.
+5. **Do not be redundant** — do not repeat the same information in if it already appears in another bullet point.
+6. **Output only Markdown** — return the tailored resume as clean Markdown with
+   no commentary, preamble, or code fences. The output should be no more than 500 words and fit on a single pdf page.
