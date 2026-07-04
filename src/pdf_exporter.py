@@ -15,7 +15,7 @@ body {
     font-family: Arial, Helvetica, sans-serif;
     font-size: 10pt;
     color: #111111;
-    line-height: 1.15;
+    line-height: 1.2;
 }
 h1 {
     font-size: 18pt;
@@ -23,24 +23,32 @@ h1 {
     margin: 0 0 3px 0;
     padding: 0;
 }
-/* Contact line sits directly under the name */
+/* Subtitle (e.g. "Data Scientist") sits directly under the name */
 h1 + p {
+    text-align: center;
+    margin: 0 0 2px 0;
+    font-size: 12pt;
+    font-weight: bold;
+}
+/* Contact line is the second <p> after h1; target via sibling chain */
+h1 + p + p {
     text-align: center;
     margin: 0 0 6px 0;
     font-size: 10pt;
+    font-weight: normal;
 }
 h2 {
-    font-size: 11pt;
+    font-size: 12pt;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     border-bottom: 0.75pt solid #555555;
     padding-bottom: 1px;
-    margin: 12px 0 4px 0;
+    margin: 12px 0 7px 0;
     page-break-after: avoid;
 }
 h3 {
-    font-size: 10pt;
-    margin: 8px 0 1px 0;
+    font-size: 11pt;
+    margin: 8px 0 2px 0;
     page-break-after: avoid;
 }
 /* Role/date lines rendered as italicised <p> after h3 */
@@ -58,6 +66,9 @@ ul {
 }
 li {
     margin-bottom: 2px;
+}
+strong {
+    font-weight: 600;
 }
 /* Keep each sub-section (role/project) on the same page when possible */
 h3, li {
@@ -105,5 +116,6 @@ def generate_resume_pdf(markdown_text: str, output_path: str) -> int:
     document = HTML(string=_build_html(markdown_text)).render()
     document.write_pdf(output_path)
     page_count = len(document.pages)
-    print(f"PDF written → {output_path}  ({page_count} page{'s' if page_count != 1 else ''})")
+    suffix = "s" if page_count != 1 else ""
+    print(f"PDF written → {output_path}  ({page_count} page{suffix})")
     return page_count

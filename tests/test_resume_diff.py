@@ -76,7 +76,8 @@ class TestTokenOverlap:
         assert _token_overlap(a, b) == expected
 
     def test_partial_overlap_is_between_zero_and_one(self):
-        assert 0.0 < _token_overlap("machine learning pipelines", "machine learning") < 1.0
+        score = _token_overlap("machine learning pipelines", "machine learning")
+        assert 0.0 < score < 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -124,8 +125,11 @@ class TestFindChangedBullets:
             "- Built a data pipeline in Python\n"
             "- Managed a large team of five\n"
         )
-        by_tailored = {c.tailored: c.original for c in find_changed_bullets(self.MASTER, tailored)}
-        assert by_tailored["Built a data pipeline in Python"] == "Built a pipeline in Python"
+        changes = find_changed_bullets(self.MASTER, tailored)
+        by_tailored = {c.tailored: c.original for c in changes}
+        assert by_tailored["Built a data pipeline in Python"] == (  # noqa: E501
+            "Built a pipeline in Python"
+        )
         assert by_tailored["Managed a large team of five"] == "Managed a team of five"
 
     def test_new_section_bullet_flagged(self):
@@ -164,12 +168,14 @@ class TestRevertViolations:
         assert "bad bullet" not in result
 
     def test_reverts_only_first_occurrence_of_duplicate(self):
-        """Same tailored text in two sections — only the first occurrence is reverted."""
+        """Same tailored text in two sections — only first occurrence is reverted."""
         result = revert_violations(
             "## S\n- dup bullet\n## T\n- dup bullet\n",
             [{"original": "orig bullet", "tailored": "dup bullet"}],
         )
-        bullets = [ln.strip() for ln in result.splitlines() if ln.strip().startswith("- ")]
+        bullets = [
+            ln.strip() for ln in result.splitlines() if ln.strip().startswith("- ")
+        ]
         assert bullets.count("- orig bullet") == 1
         assert bullets.count("- dup bullet") == 1
 
@@ -182,7 +188,8 @@ class TestRevertViolations:
 
     def test_skips_violation_with_empty_original(self):
         md = "## S\n- some bullet\n"
-        assert "- some bullet" in revert_violations(md, [{"original": "", "tailored": "some bullet"}])
+        reverted = revert_violations(md, [{"original": "", "tailored": "some bullet"}])
+        assert "- some bullet" in reverted
 
 
 # ---------------------------------------------------------------------------
@@ -196,21 +203,27 @@ class TestValidationResultSummary:
         assert "0 changed bullets" in summary
 
     def test_skipped(self):
-        summary = ValidationResult(passed=True, skipped=True, skip_reason="validate=False").summary()
+        summary = ValidationResult(
+            passed=True, skipped=True, skip_reason="validate=False"
+        ).summary()
         assert summary.startswith("⚠")
         assert "validate=False" in summary
 
     def test_failed_lists_reasons(self):
         summary = ValidationResult(
             passed=False,
-            violations=[{"reason": "Added SQL", "original": "Python", "tailored": "Python, SQL"}],
+            violations=[{
+                "reason": "Added SQL", "original": "Python", "tailored": "Python, SQL",
+            }],
         ).summary()
         assert summary.startswith("✗")
         assert "Added SQL" in summary
         assert "Python, SQL" in summary
 
     def test_failed_missing_reason_key(self):
-        summary = ValidationResult(passed=False, violations=[{"original": "a", "tailored": "b"}]).summary()
+        summary = ValidationResult(
+            passed=False, violations=[{"original": "a", "tailored": "b"}]
+        ).summary()
         assert "(no reason given)" in summary
 
 
@@ -219,7 +232,9 @@ class TestValidationResultSummary:
 # ---------------------------------------------------------------------------
 
 _SINGLE_VIOLATION_MD = "## S\n- bad bullet\n"
-_SINGLE_VIOLATION = [{"original": "good bullet", "tailored": "bad bullet", "reason": "r"}]
+_SINGLE_VIOLATION = [
+    {"original": "good bullet", "tailored": "bad bullet", "reason": "r"}
+]
 
 
 @pytest.fixture
@@ -244,21 +259,28 @@ class TestReportAndMaybeRevert:
         input_fn.assert_not_called()
 
     def test_user_accepts_revert(self, capsys, single_violation_result):
-        out = report_and_maybe_revert(_SINGLE_VIOLATION_MD, single_violation_result, input_fn=lambda _: "y")
+        out = report_and_maybe_revert(
+            _SINGLE_VIOLATION_MD, single_violation_result, input_fn=lambda _: "y"
+        )
         assert "- good bullet" in out
         assert "bad bullet" not in out
         assert "Reverted 1 edit(s)" in capsys.readouterr().out
 
     def test_user_declines_revert(self, single_violation_result):
-        out = report_and_maybe_revert(_SINGLE_VIOLATION_MD, single_violation_result, input_fn=lambda _: "n")
+        out = report_and_maybe_revert(
+            _SINGLE_VIOLATION_MD, single_violation_result, input_fn=lambda _: "n"
+        )
         assert out == _SINGLE_VIOLATION_MD
 
     def test_reverts_only_accepted_bullets(self, capsys):
         md = "## S\n- bad bullet one\n- bad bullet two\n"
-        result = ValidationResult(passed=False, violations=[
-            {"original": "good bullet one", "tailored": "bad bullet one", "reason": "r1"},
-            {"original": "good bullet two", "tailored": "bad bullet two", "reason": "r2"},
-        ])
+        violations = [
+            {"original": "good bullet one", "tailored": "bad bullet one",
+             "reason": "r1"},
+            {"original": "good bullet two", "tailored": "bad bullet two",
+             "reason": "r2"},
+        ]
+        result = ValidationResult(passed=False, violations=violations)
         answers = iter(["y", "n"])
         out = report_and_maybe_revert(md, result, input_fn=lambda _: next(answers))
         assert "- good bullet one" in out
@@ -275,10 +297,13 @@ class TestReportAndMaybeRevert:
     ])
     def test_eof_stops_review(self, prompts, expect_revert):
         md = "## S\n- bad bullet one\n- bad bullet two\n"
-        result = ValidationResult(passed=False, violations=[
-            {"original": "good bullet one", "tailored": "bad bullet one", "reason": "r1"},
-            {"original": "good bullet two", "tailored": "bad bullet two", "reason": "r2"},
-        ])
+        violations = [
+            {"original": "good bullet one", "tailored": "bad bullet one",
+             "reason": "r1"},
+            {"original": "good bullet two", "tailored": "bad bullet two",
+             "reason": "r2"},
+        ]
+        result = ValidationResult(passed=False, violations=violations)
         it = iter(prompts)
 
         def _input(_):
@@ -295,10 +320,14 @@ class TestReportAndMaybeRevert:
         (["", "maybe", "YES", "y"], True),   # junk then accept
         (["x", "n"],               False),  # junk then decline
     ])
-    def test_invalid_input_reprompts(self, capsys, junk_then_valid, expect_revert, single_violation_result):
+    def test_invalid_input_reprompts(
+        self, capsys, junk_then_valid, expect_revert, single_violation_result
+    ):
         answers = iter(junk_then_valid)
         out = report_and_maybe_revert(
-            _SINGLE_VIOLATION_MD, single_violation_result, input_fn=lambda _: next(answers)
+            _SINGLE_VIOLATION_MD,
+            single_violation_result,
+            input_fn=lambda _: next(answers),
         )
         assert ("- good bullet" in out) == expect_revert
         assert "Please enter 'y' or 'n'" in capsys.readouterr().out
@@ -312,5 +341,7 @@ class TestReportAndMaybeRevert:
             except StopIteration:
                 raise EOFError
 
-        out = report_and_maybe_revert(_SINGLE_VIOLATION_MD, single_violation_result, input_fn=_input)
+        out = report_and_maybe_revert(
+            _SINGLE_VIOLATION_MD, single_violation_result, input_fn=_input
+        )
         assert out == _SINGLE_VIOLATION_MD

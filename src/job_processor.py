@@ -91,8 +91,6 @@ def _trim_one_bullet(markdown_text: str) -> str | None:
         if proj_entries:
             last_h3_idx, _ = proj_entries[-1]
             # The block ends just before the next h3 or the section end
-            if len(proj_entries) >= 2:
-                next_h3_idx = proj_entries[-2][0]  # unused; block end computed below
             block_end = proj_end
             for i in range(last_h3_idx + 1, proj_end):
                 if re.match(r'^###\s+', lines[i]):
@@ -120,7 +118,11 @@ def _ensure_one_page(markdown_text: str) -> str:
                 print(f"  Trimmed to 1 page after {pass_num - 1} pass(es).")
             return markdown_text
 
-        print(f"  Page overflow ({pages} pages) — trimming pass {pass_num}/{_MAX_TRIM_PASSES}...", flush=True)
+        print(
+            f"  Page overflow ({pages} pages) — trimming pass"
+            f" {pass_num}/{_MAX_TRIM_PASSES}...",
+            flush=True,
+        )
         trimmed = _trim_one_bullet(markdown_text)
         if trimmed is None:
             print("  Warning: could not trim further; PDF may exceed one page.")
