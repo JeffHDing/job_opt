@@ -3,7 +3,7 @@
 [![CI](https://github.com/JeffHDing/job_opt/actions/workflows/ci.yml/badge.svg)](https://github.com/JeffHDing/job_opt/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/JeffHDing/job_opt/branch/main/graph/badge.svg)](https://codecov.io/gh/JeffHDing/job_opt)
 
-An LLM-powered CLI tool that tailors a master Markdown resume to a specific job description using the Gemini API, runs a second judge pass to flag unsupported edits, and exports the result as a one-page ATS-friendly PDF.
+An LLM-powered CLI tool that tailors a master Markdown resume to a specific job description using the Gemini API, runs a second judge pass to flag unsupported edits, auto-trims to one page if needed, and exports the result as an ATS-friendly PDF.
 
 ---
 
@@ -16,7 +16,7 @@ job_opt/
 │   ├── job_processor.py             # Pipeline orchestrator: tailor → validate → PDF
 │   ├── llm_client.py                # Gemini API calls (tailor/judge/editor) + standalone CLI
 │   ├── resume_diff.py               # Pure-Python bullet parser, differ, revert utils
-│   └── pdf_exporter.py              # Markdown → WeasyPrint PDF renderer
+│   └── pdf_exporter.py              # Markdown → WeasyPrint PDF renderer + page-count helper
 ├── prompts/
 │   ├── tailor_system.txt            # System prompt for the tailor pass
 │   ├── judge_system.txt             # System prompt for the judge pass
@@ -135,15 +135,18 @@ tailor a resume without exporting a PDF (useful for quick iteration); see
 
 ## How It Works
 
-1. **Tailor** — `llm_client.tailor_resume()` sends the master resume + job description to `gemini-3.1-flash-lite` with the system prompt in `prompts/tailor_system.txt`: preserve structure, reorder bullets, substitute keywords only when directly supported by the original text.
+1. **Tailor** — `llm_client.tailor_resume()` sends the master resume + job description to `gemini-3.1-flash-lite` with the system prompt in `prompts/tailor_system.txt`. The prompt enforces 8 rules: preserve structure, preserve all Technical Skills entries (adding only skills explicitly present in Experience/Projects), reorder bullets by relevance, substitute keywords only when directly supported by the original text, stay factual, avoid redundancy, output clean Markdown, and respect hard one-page limits (≤3 experience roles × ≤4 bullets, ≤5 projects × ≤2 bullets, ≤20 total bullets across both sections).
 2. **Diff** — `resume_diff.find_changed_bullets()` compares the tailored output against the master and extracts only the changed bullets (original + tailored pairs).
 3. **Validate** — A second Gemini call (prompt in `prompts/judge_system.txt`) reviews the changed bullets and the job description, flagging any edits that add unsupported claims.
 4. **Report + revert** — `resume_diff.report_and_maybe_revert()` prints the validation summary and, if violations were found, prompts bullet-by-bullet to revert each flagged edit to its original. This is shared by both `job_processor.py` and `llm_client.py`'s standalone CLI.
-5. **Export** — `pdf_exporter.generate_resume_pdf()` converts the final Markdown to a single-page Letter PDF via WeasyPrint (no floats, no images — purely linear for ATS parsing).
+5. **Auto-trim** — `job_processor._ensure_one_page()` calls `pdf_exporter.get_page_count()` to render the Markdown in-memory and check the page count. If it overflows, `_trim_one_bullet()` removes one bullet at a time (last project bullet → last experience bullet → entire last project entry) until the output fits on one page, up to 8 trim passes.
+6. **Export** — `pdf_exporter.generate_resume_pdf()` converts the final Markdown to a Letter PDF via WeasyPrint (no floats, no images — purely linear for ATS parsing).
 
 Separately, `llm_client.review_resume()` (prompt in `prompts/editor_system.txt`) runs a senior-recruiter "editor" pass over the master resume and job description, producing a standalone feedback report — see [Getting recruiter-style feedback](#getting-recruiter-style-feedback-editor-agent) above. It does not currently feed into the tailor/validate/export pipeline.
 
 Every Gemini call retries automatically on 503 (overload) and 429 (rate-limit) with exponential backoff.
+
+The auto-trim loop in step 5 is a safety net — the tailor prompt's hard bullet-count limits (rule 8) should prevent overflow in most cases. Trimming kicks in when the rendered layout still overflows despite the LLM respecting the counts, e.g. due to long bullet text.
 
 ---
 
@@ -184,11 +187,13 @@ CI runs `ruff check .` and `pytest -m "not integration" --cov` on every push/PR 
 
 | Component | Status |
 |---|---|
-| `resume_diff.py` | Complete — fully unit-tested |
-| `pdf_exporter.py` | Complete — renders ATS-friendly PDF, unit-tested |
-| `llm_client.py` | Complete — tailor + judge + editor(review) + retry logic, unit- and integration-tested |
-| `job_processor.py` | Complete — full pipeline orchestrator, unit-tested |
+| `resume_diff.py` | Complete — bullet parser, differ, revert, interactive report; fully unit-tested including EOF and invalid-input edge cases |
+| `pdf_exporter.py` | Complete — renders ATS-friendly PDF + `get_page_count()` in-memory helper; unit-tested |
+| `llm_client.py` | Complete — tailor + judge + editor(review) + retry logic; unit- and integration-tested |
+| `job_processor.py` | Complete — full pipeline orchestrator with auto-trim-to-one-page loop; unit-tested |
 | `main.py` | Complete — CLI entry point wired to full pipeline |
-| `prompts/` | Complete — tailor, judge, and editor system prompts externalized |
+| `prompts/tailor_system.txt` | Complete — 8 rules: structure preservation, Technical Skills fidelity, bullet reordering, keyword substitution, factuality, no redundancy, Markdown-only output, explicit one-page hard limits |
+| `prompts/judge_system.txt` | Complete — validates changed bullets against job description |
+| `prompts/editor_system.txt` | Complete — senior-recruiter feedback report |
 | Editor feedback → tailor pipeline integration | Not implemented — `review_resume()` output is a standalone report only |
 | Job scraping (LinkedIn/Indeed) | Not yet implemented |
