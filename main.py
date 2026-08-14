@@ -17,15 +17,13 @@ def main() -> None:
     )
     parser.add_argument(
         "--company", "-c",
-        required=True,
         metavar="NAME",
-        help="Company name (e.g. 'Stripe')",
+        help="Company name (prompted if omitted)",
     )
     parser.add_argument(
         "--role", "-r",
-        required=True,
         metavar="TITLE",
-        help="Job title, underscores for spaces (e.g. 'Data_Scientist')",
+        help="Job title (prompted if omitted)",
     )
     parser.add_argument(
         "--jd", "-j",
@@ -47,6 +45,16 @@ def main() -> None:
         help="Skip the judge validation step (faster, 1 API call instead of 2)",
     )
     args = parser.parse_args()
+
+    if args.company is None:
+        args.company = input("Company: ").strip()
+    if not args.company:
+        parser.error("company cannot be empty")
+
+    if args.role is None:
+        args.role = input("Role title: ").strip()
+    if not args.role:
+        parser.error("role title cannot be empty")
 
     # Read job description
     if args.jd is not None:
