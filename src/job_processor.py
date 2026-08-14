@@ -1,4 +1,3 @@
-import datetime
 import re
 from pathlib import Path
 
@@ -106,6 +105,23 @@ def _trim_one_bullet(markdown_text: str) -> str | None:
     return None
 
 
+def _set_header_role(markdown_text: str, role: str) -> str:
+    """
+    Replace the bolded role title in the resume header (the line containing
+    the phone/email contact info) with *role* from the job description.
+
+    The header line looks like:
+        **Data Scientist** | 647-... | ...
+    """
+    display_role = role.replace("_", " ")
+
+    def _replace(m: re.Match) -> str:
+        return f"**{display_role}**{m.group(1)}"
+
+    # Match **<anything>** followed by a pipe separator on the same line
+    return re.sub(r'\*\*[^*]+\*\*(\s*\|)', _replace, markdown_text, count=1)
+
+
 def _ensure_one_page(markdown_text: str) -> str:
     """
     Iteratively trim bullets from the tailored markdown until the rendered
@@ -155,8 +171,7 @@ def process_application(
 
     master_md = resume_path.read_text()
 
-    date_str = datetime.datetime.now().strftime("%Y%m%d")
-    stem = f"{date_str}_{company}_{role}"
+    stem = f"Jeffrey_Ding_CV_{role}"
     _OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     # 1. Tailor + optional judge validation
@@ -170,6 +185,9 @@ def process_application(
 
     # 2. Report + offer revert if judge found violations
     tailored_md = report_and_maybe_revert(tailored_md, result)
+
+    # 2b. Stamp the header role to match the JD
+    tailored_md = _set_header_role(tailored_md, role)
 
     # 3. Trim to one page if needed
     tailored_md = _ensure_one_page(tailored_md)
