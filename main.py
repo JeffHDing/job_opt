@@ -2,6 +2,8 @@ import argparse
 import sys
 from pathlib import Path
 
+import pyperclip
+
 # src/ uses bare imports (e.g. `from resume_diff import ...`), so it must be
 # on sys.path before any src module is imported.
 sys.path.insert(0, str(Path(__file__).parent / "src"))
@@ -9,6 +11,35 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 from job_processor import process_application  # noqa: E402
 
 _DEFAULT_RESUME = Path(__file__).parent / "data/masters/Jeffrey_Ding_CV_Data_Science.md"
+_CLIPBOARD_PREVIEW_LENGTH = 300
+
+
+def _clipboard_job_description() -> str | None:
+    try:
+        text = pyperclip.paste()
+    except pyperclip.PyperclipException:
+        return None
+    return text if text.strip() else None
+
+
+def _confirm_clipboard_job_description(job_description: str) -> bool:
+    preview = " ".join(job_description.split())
+    if len(preview) > _CLIPBOARD_PREVIEW_LENGTH:
+        preview = f"{preview[:_CLIPBOARD_PREVIEW_LENGTH].rstrip()}..."
+
+    print("\nJob description found in clipboard:")
+    print(f'  "{preview}"')
+    response = input("\nUse this job description? [Y/n]: ").strip().lower()
+    return response in {"", "y", "yes"}
+
+
+def _read_job_description() -> str:
+    clipboard_text = _clipboard_job_description()
+    if clipboard_text and _confirm_clipboard_job_description(clipboard_text):
+        return clipboard_text
+
+    print("Paste job description, then press Ctrl-D (Ctrl-Z on Windows):")
+    return sys.stdin.read()
 
 
 def main() -> None:
@@ -30,7 +61,7 @@ def main() -> None:
         type=Path,
         default=None,
         metavar="FILE",
-        help="Path to job description file (omit to paste via stdin)",
+        help="Path to job description file (defaults to clipboard interactively)",
     )
     parser.add_argument(
         "--resume",
@@ -62,9 +93,9 @@ def main() -> None:
             print(f"error: JD file not found: {args.jd}", file=sys.stderr)
             sys.exit(1)
         job_description = args.jd.read_text()
+    elif sys.stdin.isatty():
+        job_description = _read_job_description()
     else:
-        if sys.stdin.isatty():
-            print("Paste job description, then press Ctrl-D (Ctrl-Z on Windows):")
         job_description = sys.stdin.read()
 
     if not job_description.strip():

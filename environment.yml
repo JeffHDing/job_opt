@@ -11,6 +11,7 @@ dependencies:
   - markdown
   - weasyprint
   - python-dotenv
+  - pyperclip
   - pytest
   - ruff
   - pytest-cov

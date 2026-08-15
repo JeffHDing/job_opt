@@ -2,6 +2,7 @@ google-genai
 markdown
 weasyprint
 python-dotenv
+pyperclip
 pytest
 pytest-cov
 ruff
