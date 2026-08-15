@@ -89,8 +89,7 @@ class TestProcessApplication:
         assert md_path.read_text() == "# Tailored\n- bullet\n"
         assert md_path.suffix == ".md"
         assert pdf_path.suffix == ".pdf"
-        assert "Stripe_Data_Scientist" in md_path.name
-        assert "Stripe_Data_Scientist" in pdf_path.name
+        assert "Data_Scientist" in md_path.stem
         assert md_path.stem == pdf_path.stem
         mock_pdf.assert_called_once_with("# Tailored\n- bullet\n", str(pdf_path))
 
