@@ -73,31 +73,56 @@ Get a free key at [aistudio.google.com](https://aistudio.google.com/). The free 
 
 ### Tailor a resume and export a PDF
 
+The simplest workflow is clipboard-based:
+
+1. Copy the full job description from the job board.
+2. Run:
+
 ```bash
-python main.py --company <Name> --role <Title> --jd <file>
+python main.py
 ```
 
-**Examples:**
+3. Enter the company and role title when prompted.
+4. Review the clipboard preview and press Enter (or type `y`) to use it.
+
+```text
+Company: Stripe
+Role title: Data Scientist
+
+Job description found in clipboard:
+  "About the role..."
+
+Use this job description? [Y/n]:
+```
+
+Type `n` to reject the clipboard contents and paste the job description into
+the terminal instead. Finish terminal input with Ctrl-D (Ctrl-Z on Windows).
+
+Command-line flags can bypass some or all prompts:
 
 ```bash
-# From a job description file
-python main.py --company Stripe --role Data_Scientist \
+# Provide company and role while using the clipboard
+python main.py --company Stripe --role "Data Scientist"
+
+# Read the job description from a file instead of the clipboard
+python main.py --company Stripe --role "Data Scientist" \
                --jd data/job_descriptions/stripe_ds.txt
 
-# Paste the job description interactively (Ctrl-D to finish)
-python main.py --company Stripe --role Data_Scientist
+# Pipe a job description through stdin
+pbpaste | python main.py --company Stripe --role "Data Scientist"
 
 # Use a different master resume
-python main.py --company Stripe --role Data_Scientist \
+python main.py --company Stripe --role "Data Scientist" \
                --jd data/job_descriptions/stripe_ds.txt \
                --resume data/masters/my_other_resume.md
 
 # Skip the judge validation pass (faster, 1 API call)
-python main.py --company Stripe --role Data_Scientist \
+python main.py --company Stripe --role "Data Scientist" \
                --jd data/job_descriptions/stripe_ds.txt \
                --no-validate
 ```
 
+Job-description input priority is `--jd`, piped stdin, then the clipboard.
 Outputs are saved to `data/tailored_outputs/YYYYMMDD_{Company}_{Role}.md` and `.pdf`.
 
 When the judge flags unsupported edits, the CLI walks you through each flagged bullet and asks whether to revert it before writing the files.
@@ -106,9 +131,9 @@ When the judge flags unsupported edits, the CLI walks you through each flagged b
 
 | Flag | Short | Default | Description |
 |---|---|---|---|
-| `--company` | `-c` | *(required)* | Company name (e.g. `Stripe`) |
-| `--role` | `-r` | *(required)* | Job title, underscores for spaces (e.g. `Data_Scientist`) |
-| `--jd` | `-j` | stdin | Path to job description text file |
+| `--company` | `-c` | prompt | Company name (e.g. `Stripe`) |
+| `--role` | `-r` | prompt | Job title (e.g. `Data Scientist`) |
+| `--jd` | `-j` | clipboard | Path to job description text file; piped stdin is also supported |
 | `--resume` | | `data/masters/Jeffrey_Ding_CV_Data_Science.md` | Master resume Markdown file |
 | `--no-validate` | | off | Skip the judge validation step |
 
