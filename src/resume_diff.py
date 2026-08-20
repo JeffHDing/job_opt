@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Callable
+from typing import Callable, Iterable, Iterator
 
 # ---------------------------------------------------------------------------
 # Data types
@@ -47,25 +47,45 @@ class ValidationResult:
 # Bullet parser + differ
 # ---------------------------------------------------------------------------
 
-def parse_bullets(md: str) -> dict[str, list[str]]:
+# Stand-in for the "original" of a tailored bullet that has no counterpart in
+# the master resume — i.e. wholly new content rather than an edit.
+NO_MASTER_MATCH = "(no matching master bullet)"
+
+# Two bullets scoring below this token overlap are treated as unrelated.
+# Real edits to the master score ≳ 0.33; unrelated bullets score ≲ 0.15.
+_MIN_MATCH_OVERLAP = 0.25
+
+
+def _iter_lines_with_section(lines: Iterable[str]) -> Iterator[tuple[str, str]]:
     """
-    Parse a Markdown resume into {section_path: [bullet_text, ...]} where
-    section_path is 'H2 Section / H3 Subsection' (or just 'H2 Section').
+    Pair each line with the section path it belongs to, where section_path is
+    'H2 Section / H3 Subsection' (or just 'H2 Section').
     """
-    result: dict[str, list[str]] = {}
     current_h2 = ""
     current_h3 = ""
 
-    for raw_line in md.splitlines():
+    for raw_line in lines:
         line = raw_line.strip()
         if line.startswith("## "):
             current_h2 = line[3:].strip()
             current_h3 = ""
         elif line.startswith("### "):
             current_h3 = line[4:].strip()
-        elif line.startswith("- "):
-            key = f"{current_h2} / {current_h3}" if current_h3 else current_h2
-            result.setdefault(key, []).append(line[2:].strip())
+        key = f"{current_h2} / {current_h3}" if current_h3 else current_h2
+        yield key, raw_line
+
+
+def parse_bullets(md: str) -> dict[str, list[str]]:
+    """
+    Parse a Markdown resume into {section_path: [bullet_text, ...]} where
+    section_path is 'H2 Section / H3 Subsection' (or just 'H2 Section').
+    """
+    result: dict[str, list[str]] = {}
+
+    for section, raw_line in _iter_lines_with_section(md.splitlines()):
+        line = raw_line.strip()
+        if line.startswith("- "):
+            result.setdefault(section, []).append(line[2:].strip())
 
     return result
 
@@ -79,11 +99,21 @@ def _token_overlap(a: str, b: str) -> float:
     return len(ta & tb) / len(ta | tb)
 
 
-def _closest_match(target: str, candidates: list[str]) -> str | None:
-    """Return the candidate most similar to target by token overlap."""
+def _closest_match(
+    target: str,
+    candidates: list[str],
+    min_overlap: float = _MIN_MATCH_OVERLAP,
+) -> str | None:
+    """
+    Return the candidate most similar to target by token overlap, or None when
+    even the best candidate falls below *min_overlap*. Without the floor an
+    entirely new bullet would be paired with an unrelated master bullet, and
+    reverting it would replace new content with a copy of that bullet.
+    """
     if not candidates:
         return None
-    return max(candidates, key=lambda c: _token_overlap(target, c))
+    best = max(candidates, key=lambda c: _token_overlap(target, c))
+    return best if _token_overlap(target, best) >= min_overlap else None
 
 
 def find_changed_bullets(master_md: str, tailored_md: str) -> list[BulletChange]:
@@ -105,7 +135,7 @@ def find_changed_bullets(master_md: str, tailored_md: str) -> list[BulletChange]
                 best = _closest_match(tb, m_list)
                 changes.append(BulletChange(
                     section=section,
-                    original=best if best else "(no matching master bullet)",
+                    original=best if best else NO_MASTER_MATCH,
                     tailored=tb,
                 ))
     return changes
@@ -118,6 +148,10 @@ def revert_violations(tailored_md: str, violations: list[dict]) -> str:
     Works line-by-line so that identical text appearing in different sections
     is only replaced at the first match for each violation entry, preventing
     cross-section collisions.
+
+    A flagged bullet is dropped instead of rewritten when it has no master
+    counterpart, or when its original is already present in the same section —
+    otherwise the revert would leave the section listing the same point twice.
     """
     # Index violations by tailored text for O(1) lookup; track which have been
     # consumed so each violation reverts at most one occurrence.
@@ -128,16 +162,51 @@ def revert_violations(tailored_md: str, violations: list[dict]) -> str:
         if tailored_text and original_text and tailored_text not in pending:
             pending[tailored_text] = original_text
 
+    # Bullets each section currently holds, kept current as reverts are applied
+    # so that back-to-back reverts can't converge on the same original.
+    present = {sec: set(items) for sec, items in parse_bullets(tailored_md).items()}
+
     result: list[str] = []
-    for raw_line in tailored_md.splitlines(keepends=True):
+    for section, raw_line in _iter_lines_with_section(
+        tailored_md.splitlines(keepends=True)
+    ):
         stripped = raw_line.strip()
         if stripped.startswith("- "):
-            bullet_text = stripped[2:]
+            bullet_text = stripped[2:].strip()
             if bullet_text in pending:
+                original = pending.pop(bullet_text)
+                section_bullets = present.setdefault(section, set())
+                section_bullets.discard(bullet_text)
+                if original == NO_MASTER_MATCH or original in section_bullets:
+                    continue
+                section_bullets.add(original)
                 indent = len(raw_line) - len(raw_line.lstrip())
                 eol = "\n" if raw_line.endswith("\n") else ""
-                result.append(" " * indent + "- " + pending.pop(bullet_text) + eol)
+                result.append(" " * indent + "- " + original + eol)
                 continue
+        result.append(raw_line)
+
+    return "".join(result)
+
+
+def dedupe_bullets(md: str) -> str:
+    """
+    Drop bullets that repeat a bullet already listed in the same section.
+
+    A backstop for duplicates from any source — the tailor agent restating a
+    point, or a revert collapsing two bullets onto one original.
+    """
+    seen: dict[str, set[str]] = {}
+
+    result: list[str] = []
+    for section, raw_line in _iter_lines_with_section(md.splitlines(keepends=True)):
+        stripped = raw_line.strip()
+        if stripped.startswith("- "):
+            bullet_text = stripped[2:].strip()
+            section_bullets = seen.setdefault(section, set())
+            if bullet_text in section_bullets:
+                continue
+            section_bullets.add(bullet_text)
         result.append(raw_line)
 
     return "".join(result)
@@ -189,12 +258,15 @@ def report_and_maybe_revert(
 
     for i, violation in enumerate(result.violations, start=1):
         print(_format_violation_review(violation, i, total))
+        prompt = (
+            "Remove this bullet? [y/n] "
+            if violation.get("original") == NO_MASTER_MATCH
+            else "Revert this bullet to original? [y/n] "
+        )
         answer = ""
         while True:
             try:
-                answer = input_fn(
-                    "Revert this bullet to original? [y/n] "
-                ).strip().lower()
+                answer = input_fn(prompt).strip().lower()
             except EOFError:
                 print()
                 answer = ""

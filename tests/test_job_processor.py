@@ -138,6 +138,26 @@ class TestProcessApplication:
             mock_pdf.assert_called_once()
             assert "good bullet" in mock_pdf.call_args[0][0]
 
+    def test_duplicate_bullets_removed_before_export(self, tmp_path, monkeypatch):
+        resume = _make_resume(tmp_path)
+        monkeypatch.setattr(job_processor, "_OUTPUT_DIR", tmp_path / "out")
+        validation = ValidationResult(passed=True, skipped=True, skip_reason="x")
+        tailored = (
+            "## Experience\n### Acme\n- repeated point\n- other point\n"
+            "- repeated point\n"
+        )
+        gpc, gpdf = _patch_externals()
+        with patch(
+            "job_processor.tailor_resume", return_value=(tailored, validation)
+        ), gpc, gpdf as mock_pdf:
+            md_path, _ = process_application(
+                job_description="jd", company="Acme", role="Eng", resume_path=resume
+            )
+        written = md_path.read_text()
+        assert written.count("- repeated point") == 1
+        assert "- other point" in written
+        assert mock_pdf.call_args[0][0].count("- repeated point") == 1
+
     def test_creates_output_dir_if_missing(self, tmp_path, monkeypatch):
         resume = _make_resume(tmp_path)
         nested_out = tmp_path / "nested" / "out"

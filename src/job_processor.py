@@ -3,7 +3,7 @@ from pathlib import Path
 
 from llm_client import tailor_resume
 from pdf_exporter import generate_resume_pdf, get_page_count
-from resume_diff import report_and_maybe_revert
+from resume_diff import dedupe_bullets, report_and_maybe_revert
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _DEFAULT_RESUME = _PROJECT_ROOT / "data/masters/Jeffrey_Ding_CV_Data_Science.md"
@@ -188,6 +188,9 @@ def process_application(
 
     # 2b. Stamp the header role to match the JD
     tailored_md = _set_header_role(tailored_md, role)
+
+    # 2c. Drop any bullet repeated within a section
+    tailored_md = dedupe_bullets(tailored_md)
 
     # 3. Trim to one page if needed
     tailored_md = _ensure_one_page(tailored_md)

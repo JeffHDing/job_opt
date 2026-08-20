@@ -12,6 +12,7 @@ from google.genai.errors import ClientError, ServerError
 from resume_diff import (
     BulletChange,
     ValidationResult,
+    dedupe_bullets,
     find_changed_bullets,
     report_and_maybe_revert,
 )
@@ -347,6 +348,7 @@ def _cli_main(argv: list[str] | None = None) -> None:
     )
 
     tailored = report_and_maybe_revert(tailored, result)
+    tailored = dedupe_bullets(tailored)
 
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)

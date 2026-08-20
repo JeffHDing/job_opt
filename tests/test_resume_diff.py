@@ -10,9 +10,11 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from resume_diff import (
+    NO_MASTER_MATCH,
     ValidationResult,
     _closest_match,
     _token_overlap,
+    dedupe_bullets,
     find_changed_bullets,
     parse_bullets,
     report_and_maybe_revert,
@@ -92,6 +94,16 @@ class TestClosestMatch:
     def test_empty_candidates_returns_none(self):
         assert _closest_match("anything", []) is None
 
+    def test_unrelated_candidates_return_none(self):
+        candidates = ["Managed a team of five engineers across two offices"]
+        assert _closest_match("Trained a CNN on retina scans", candidates) is None
+
+    def test_threshold_is_configurable(self):
+        candidates = ["Managed a team of five engineers across two offices"]
+        assert _closest_match(
+            "Trained a CNN on retina scans", candidates, min_overlap=0.0
+        ) == candidates[0]
+
 
 # ---------------------------------------------------------------------------
 # find_changed_bullets
@@ -127,15 +139,26 @@ class TestFindChangedBullets:
         )
         changes = find_changed_bullets(self.MASTER, tailored)
         by_tailored = {c.tailored: c.original for c in changes}
-        assert by_tailored["Built a data pipeline in Python"] == (  # noqa: E501
-            "Built a pipeline in Python"
-        )
+        assert by_tailored[
+            "Built a data pipeline in Python"] == "Built a pipeline in Python"
         assert by_tailored["Managed a large team of five"] == "Managed a team of five"
 
     def test_new_section_bullet_flagged(self):
         tailored = self.MASTER + "## Projects\n- New project bullet\n"
         changes = find_changed_bullets(self.MASTER, tailored)
         assert any(c.tailored == "New project bullet" for c in changes)
+
+    def test_unrelated_bullet_has_no_original(self):
+        """A wholly new bullet must not be paired with an unrelated master one."""
+        tailored = (
+            "## Experience\n### Acme\n"
+            "- Built a pipeline in Python\n"
+            "- Managed a team of five\n"
+            "- Trained a CNN on retina scans using Keras\n"
+        )
+        changes = find_changed_bullets(self.MASTER, tailored)
+        assert len(changes) == 1
+        assert changes[0].original == NO_MASTER_MATCH
 
 
 # ---------------------------------------------------------------------------
@@ -191,6 +214,71 @@ class TestRevertViolations:
         reverted = revert_violations(md, [{"original": "", "tailored": "some bullet"}])
         assert "- some bullet" in reverted
 
+    def test_drops_bullet_with_no_master_counterpart(self):
+        result = revert_violations(
+            "## S\n- keep this\n- fabricated bullet\n",
+            [{"original": NO_MASTER_MATCH, "tailored": "fabricated bullet"}],
+        )
+        assert "fabricated bullet" not in result
+        assert NO_MASTER_MATCH not in result
+        assert "- keep this\n" in result
+
+    def test_revert_does_not_duplicate_existing_bullet(self):
+        """The original is already in the section, so the flagged bullet is dropped."""
+        result = revert_violations(
+            "## Experience\n### Acme\n- shared original\n- reworded bullet\n",
+            [{"original": "shared original", "tailored": "reworded bullet"}],
+        )
+        assert result.count("- shared original") == 1
+        assert "reworded bullet" not in result
+
+    def test_two_violations_reverting_to_same_original_collapse(self):
+        result = revert_violations(
+            "## Experience\n### Acme\n- reworded one\n- reworded two\n",
+            [
+                {"original": "shared original", "tailored": "reworded one"},
+                {"original": "shared original", "tailored": "reworded two"},
+            ],
+        )
+        assert result.count("- shared original") == 1
+
+    def test_same_original_in_different_sections_is_kept(self):
+        result = revert_violations(
+            "## S\n- reworded one\n## T\n- reworded two\n",
+            [
+                {"original": "shared original", "tailored": "reworded one"},
+                {"original": "shared original", "tailored": "reworded two"},
+            ],
+        )
+        assert result.count("- shared original") == 2
+
+
+# ---------------------------------------------------------------------------
+# dedupe_bullets
+# ---------------------------------------------------------------------------
+
+class TestDedupeBullets:
+    def test_removes_repeat_within_section(self):
+        md = "## Experience\n### Acme\n- same point\n- other\n- same point\n"
+        assert dedupe_bullets(md) == (
+            "## Experience\n### Acme\n- same point\n- other\n"
+        )
+
+    def test_keeps_same_bullet_in_different_sections(self):
+        md = "## S\n- shared\n## T\n- shared\n"
+        assert dedupe_bullets(md) == md
+
+    def test_keeps_same_bullet_under_different_h3(self):
+        md = "## Experience\n### Acme\n- shared\n### Globex\n- shared\n"
+        assert dedupe_bullets(md) == md
+
+    def test_leaves_clean_markdown_untouched(self):
+        md = "# Name\n\n## Skills\n\n- Python\n- SQL\n\n## Experience\n\n- Did work\n"
+        assert dedupe_bullets(md) == md
+
+    def test_preserves_trailing_newline_absence(self):
+        assert dedupe_bullets("## S\n- a\n- a") == "## S\n- a\n"
+
 
 # ---------------------------------------------------------------------------
 # ValidationResult.summary
@@ -213,7 +301,9 @@ class TestValidationResultSummary:
         summary = ValidationResult(
             passed=False,
             violations=[{
-                "reason": "Added SQL", "original": "Python", "tailored": "Python, SQL",
+                "reason": "Added SQL",
+                "original": "Python",
+                "tailored": "Python, SQL"
             }],
         ).summary()
         assert summary.startswith("✗")
@@ -233,7 +323,9 @@ class TestValidationResultSummary:
 
 _SINGLE_VIOLATION_MD = "## S\n- bad bullet\n"
 _SINGLE_VIOLATION = [
-    {"original": "good bullet", "tailored": "bad bullet", "reason": "r"}
+    {"original": "good bullet",
+    "tailored": "bad bullet",
+    "reason": "r"}
 ]
 
 
@@ -275,9 +367,11 @@ class TestReportAndMaybeRevert:
     def test_reverts_only_accepted_bullets(self, capsys):
         md = "## S\n- bad bullet one\n- bad bullet two\n"
         violations = [
-            {"original": "good bullet one", "tailored": "bad bullet one",
+            {"original": "good bullet one",
+            "tailored": "bad bullet one",
              "reason": "r1"},
-            {"original": "good bullet two", "tailored": "bad bullet two",
+            {"original": "good bullet two",
+            "tailored": "bad bullet two",
              "reason": "r2"},
         ]
         result = ValidationResult(passed=False, violations=violations)
@@ -298,9 +392,11 @@ class TestReportAndMaybeRevert:
     def test_eof_stops_review(self, prompts, expect_revert):
         md = "## S\n- bad bullet one\n- bad bullet two\n"
         violations = [
-            {"original": "good bullet one", "tailored": "bad bullet one",
+            {"original": "good bullet one",
+            "tailored": "bad bullet one",
              "reason": "r1"},
-            {"original": "good bullet two", "tailored": "bad bullet two",
+            {"original": "good bullet two",
+            "tailored": "bad bullet two",
              "reason": "r2"},
         ]
         result = ValidationResult(passed=False, violations=violations)
