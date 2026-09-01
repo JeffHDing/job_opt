@@ -6,7 +6,7 @@
 
 - **Data Analysis & Modeling:** EDA, ETL, Data Visualization, Data Engineering, Data Modelling, Predictive Modeling, Bayesian Inference, Time Series Analysis  
 - **Machine Learning & AI:** Agentic Workflows, Computer Vision, Prompt Engineering, RAG, NLP, HMMs, LLMs, Scikit-learn, TensorFlow, PyTorch, Keras, Hugging Face
-- **Programming & Databases:** Python, R, JavaScript, PostgreSQL, IBM Db2, MongoDB, SPSS, Docker 
+- **Programming & Databases:** Python, R, JavaScript, SQL (PostgreSQL), IBM Db2, NoSQL (MongoDB), SPSS, Docker 
 - **Tools & Frameworks:** AWS, Excel, Git, CI/CD, Experimental Design, A/B Testing, Causal Inference  
 
 ## Education
