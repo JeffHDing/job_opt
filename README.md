@@ -184,7 +184,7 @@ python main.py -c Stripe -r "Data Scientist" --no-audit --no-pdf
 | `--company` | `-c` | prompt | Company name, used in the audit report filename |
 | `--role` | `-r` | prompt | Job title; also stamped into the resume header |
 | `--jd` | `-j` | clipboard | Job description file; piped stdin also works |
-| `--resume` | | `data/masters/Jeffrey_Ding_CV_Data_Science.md` | Master resume Markdown |
+| `--resume` | | `data/masters/Jeffrey_Ding_CV.md` | Master resume Markdown |
 | `--audit-only` | | off | Run stage 1 and stop |
 | `--no-audit` | | off | Skip stage 1; tailor without directives |
 | `--no-factcheck` | | off | Skip stage 3 |

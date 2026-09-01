@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 from job_processor import process_application, run_audit  # noqa: E402
 
 _PROJECT_ROOT = Path(__file__).parent
-_DEFAULT_RESUME = _PROJECT_ROOT / "data/masters/Jeffrey_Ding_CV_Data_Science.md"
+_DEFAULT_RESUME = _PROJECT_ROOT / "data/masters/Jeffrey_Ding_CV.md"
 _CLIPBOARD_PREVIEW_LENGTH = 300
 
 

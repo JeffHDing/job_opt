@@ -30,7 +30,7 @@ pytestmark = pytest.mark.integration
 
 @pytest.fixture(scope="module")
 def master_md() -> str:
-    path = _PROJECT_ROOT / "data/masters/Jeffrey_Ding_CV_Data_Science.md"
+    path = _PROJECT_ROOT / "data/masters/Jeffrey_Ding_CV.md"
     if not path.exists():
         pytest.skip(f"Master resume not found: {path}")
     return path.read_text()
