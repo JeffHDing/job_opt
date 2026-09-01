@@ -1,7 +1,16 @@
 """
-resume_diff.py — pure-Python bullet parsing, diffing, and revert utilities.
+resume_diff.py — pure-Python resume parsing, diffing, and revert utilities.
 
 No LLM dependency; safe to import and test in isolation.
+
+Two kinds of content are tracked separately because they have different
+fact-checking rules and different revert mechanics:
+
+  * **bullets** — the "- " lines, matched against the master within their own
+    section, since the same claim in a different role is a different claim.
+  * **lines** — headings, employer/date lines, and other non-bullet content.
+    These carry identity (titles, dates, degrees) and must appear verbatim
+    somewhere in the master, so they are matched globally.
 """
 from __future__ import annotations
 
@@ -13,41 +22,67 @@ from typing import Callable, Iterable, Iterator
 # Data types
 # ---------------------------------------------------------------------------
 
+BULLET = "bullet"
+LINE = "line"
+
+
 @dataclass
-class BulletChange:
+class ResumeChange:
     section: str
     original: str
     tailored: str
+    kind: str = BULLET
 
 
 @dataclass
 class ValidationResult:
     passed: bool
     violations: list[dict] = field(default_factory=list)
+    reviewed: int = 0
     skipped: bool = False
     skip_reason: str = ""
 
+    @property
+    def major_violations(self) -> list[dict]:
+        return [v for v in self.violations if v.get("severity") == "major"]
+
     def summary(self) -> str:
+        lines: list[str] = []
         if self.skipped:
-            return f"⚠  Validation skipped: {self.skip_reason}"
-        if self.passed:
-            return (
-                f"✓  Validation passed ({len(self.violations)} changed bullets "
-                "reviewed, none flagged)"
-            )
-        lines = [f"✗  Validation failed — {len(self.violations)} unsupported edit(s):"]
+            lines.append(f"⚠  Fact-check skipped: {self.skip_reason}")
+
+        # Deterministic checks still run when the model call is skipped, so a
+        # skipped result can carry violations and must still be reported.
+        if not self.violations:
+            if not self.skipped:
+                lines.append(
+                    f"✓  Fact-check passed ({self.reviewed} changed item(s) "
+                    "reviewed, none flagged)"
+                )
+            return "\n".join(lines)
+
+        major = len(self.major_violations)
+        header = (
+            f"✗  Fact-check failed — {len(self.violations)} unsupported edit(s) "
+            f"out of {self.reviewed} reviewed"
+        )
+        if major:
+            header += f" ({major} major)"
+        lines.append(header + ":")
         for v in self.violations:
-            lines.append(f"   • {v.get('reason', '(no reason given)')}")
+            severity = v.get("severity", "")
+            tag = f"[{severity}] " if severity else ""
+            lines.append(f"   • {tag}{v.get('reason', '(no reason given)')}")
             lines.append(f"     original: {v.get('original', '')}")
             lines.append(f"     tailored: {v.get('tailored', '')}")
         return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
-# Bullet parser + differ
+# Parsing
 # ---------------------------------------------------------------------------
 
-# Stand-in for the "original" of a tailored bullet that has no counterpart in
+# Stand-in for the "original" of tailored content that has no counterpart in
 # the master resume — i.e. wholly new content rather than an edit.
 NO_MASTER_MATCH = "(no matching master bullet)"
 
@@ -75,6 +110,21 @@ def _iter_lines_with_section(lines: Iterable[str]) -> Iterator[tuple[str, str]]:
         yield key, raw_line
 
 
+def _classify(raw_line: str) -> tuple[str, str] | None:
+    """
+    Return (kind, text) for a content-bearing line, or None for blank lines.
+
+    Bullet text excludes the "- " marker so it can be compared and reverted
+    independently of indentation; line text is the whole stripped line.
+    """
+    stripped = raw_line.strip()
+    if not stripped:
+        return None
+    if stripped.startswith("- "):
+        return BULLET, stripped[2:].strip()
+    return LINE, stripped
+
+
 def parse_bullets(md: str) -> dict[str, list[str]]:
     """
     Parse a Markdown resume into {section_path: [bullet_text, ...]} where
@@ -83,15 +133,34 @@ def parse_bullets(md: str) -> dict[str, list[str]]:
     result: dict[str, list[str]] = {}
 
     for section, raw_line in _iter_lines_with_section(md.splitlines()):
-        line = raw_line.strip()
-        if line.startswith("- "):
-            result.setdefault(section, []).append(line[2:].strip())
+        classified = _classify(raw_line)
+        if classified and classified[0] == BULLET:
+            result.setdefault(section, []).append(classified[1])
 
     return result
 
 
+def parse_content_lines(md: str) -> list[str]:
+    """
+    Return every non-bullet, non-blank line in document order.
+
+    These are the headings, employer/date lines, and contact details that carry
+    the resume's identity claims.
+    """
+    lines: list[str] = []
+    for raw_line in md.splitlines():
+        classified = _classify(raw_line)
+        if classified and classified[0] == LINE:
+            lines.append(classified[1])
+    return lines
+
+
+# ---------------------------------------------------------------------------
+# Diffing
+# ---------------------------------------------------------------------------
+
 def _token_overlap(a: str, b: str) -> float:
-    """Jaccard overlap on lowercased word tokens — fast proxy for bullet similarity."""
+    """Jaccard overlap on lowercased word tokens — fast proxy for similarity."""
     ta = set(re.findall(r"\w+", a.lower()))
     tb = set(re.findall(r"\w+", b.lower()))
     if not ta and not tb:
@@ -116,41 +185,177 @@ def _closest_match(
     return best if _token_overlap(target, best) >= min_overlap else None
 
 
-def find_changed_bullets(master_md: str, tailored_md: str) -> list[BulletChange]:
+def find_changed_bullets(master_md: str, tailored_md: str) -> list[ResumeChange]:
     """
     Compare master and tailored resumes bullet by bullet.
+
     A bullet is 'changed' if it does not appear verbatim in the master's
     corresponding section. Each changed bullet is paired with its closest
-    master counterpart for judge review.
+    master counterpart for fact-check review.
     """
     master_bullets = parse_bullets(master_md)
     tailored_bullets = parse_bullets(tailored_md)
 
-    changes: list[BulletChange] = []
+    changes: list[ResumeChange] = []
     for section, t_list in tailored_bullets.items():
         m_list = master_bullets.get(section, [])
         m_set = set(m_list)
         for tb in t_list:
             if tb not in m_set:
                 best = _closest_match(tb, m_list)
-                changes.append(BulletChange(
+                changes.append(ResumeChange(
                     section=section,
                     original=best if best else NO_MASTER_MATCH,
                     tailored=tb,
+                    kind=BULLET,
                 ))
     return changes
 
 
+def find_changed_lines(master_md: str, tailored_md: str) -> list[ResumeChange]:
+    """
+    Compare the non-bullet lines — headings, employers, dates, contact details.
+
+    Matching is global rather than per-section so that reordering sections or
+    moving an entry is not mistaken for an edit; only text that appears nowhere
+    in the master is reported. This is what catches a tailoring model quietly
+    promoting a job title or shifting a date range.
+    """
+    master_lines = parse_content_lines(master_md)
+    master_set = set(master_lines)
+
+    changes: list[ResumeChange] = []
+    seen: set[str] = set()
+    for section, raw_line in _iter_lines_with_section(tailored_md.splitlines()):
+        classified = _classify(raw_line)
+        if not classified or classified[0] != LINE:
+            continue
+        text = classified[1]
+        if text in master_set or text in seen:
+            continue
+        seen.add(text)
+        best = _closest_match(text, master_lines)
+        changes.append(ResumeChange(
+            section=section,
+            original=best if best else NO_MASTER_MATCH,
+            tailored=text,
+            kind=LINE,
+        ))
+    return changes
+
+
+def find_changes(master_md: str, tailored_md: str) -> list[ResumeChange]:
+    """All tailored content that differs from the master, lines before bullets."""
+    return (
+        find_changed_lines(master_md, tailored_md)
+        + find_changed_bullets(master_md, tailored_md)
+    )
+
+
+# ---------------------------------------------------------------------------
+# Technical Skills integrity
+# ---------------------------------------------------------------------------
+
+_SKILLS_SECTION = "technical skills"
+_SKILL_ROW_RE = re.compile(r"^\*\*(?P<category>[^*]+?):?\*\*:?\s*(?P<terms>.+)$")
+
+
+def _skill_rows(md: str) -> dict[str, tuple[str, list[str]]]:
+    """
+    Parse the Technical Skills section into {category: (row_text, [term, ...])}.
+
+    Rows look like "**Programming & Databases:** Python, R, PostgreSQL".
+    """
+    rows: dict[str, tuple[str, list[str]]] = {}
+    for section, bullets in parse_bullets(md).items():
+        if section.strip().lower() != _SKILLS_SECTION:
+            continue
+        for bullet in bullets:
+            match = _SKILL_ROW_RE.match(bullet)
+            if not match:
+                continue
+            terms = [t.strip() for t in match.group("terms").split(",") if t.strip()]
+            rows[match.group("category").strip()] = (bullet, terms)
+    return rows
+
+
+def _mentions(term: str, haystack: str) -> bool:
+    """
+    Whether *term* appears in *haystack* as a whole term, case-insensitively.
+
+    Word boundaries matter here: a plain substring test would accept "SQL" on
+    the strength of the master's "PostgreSQL", or "R" on any word containing an
+    r. The lookarounds are written by hand rather than with \\b so that terms
+    ending in punctuation, like "C++" or "A/B Testing", still match.
+    """
+    pattern = rf"(?<!\w){re.escape(term)}(?!\w)"
+    return re.search(pattern, haystack, re.IGNORECASE) is not None
+
+
+def find_unsupported_skills(master_md: str, tailored_md: str) -> list[dict]:
+    """
+    Flag Technical Skills terms the tailored resume added without evidence.
+
+    A term is supported when it appears anywhere in the master resume, so
+    promoting a tool named in a project into the Skills section is fine while
+    inventing one outright is not. This runs deterministically alongside the
+    model's fact-check because a silently padded skills list is the single most
+    damaging thing a tailoring model can do — it is what a candidate gets caught
+    on in a screen, and it is cheap to verify exactly.
+
+    Returns violation dicts in the same shape the model emits, so they flow
+    through the same review-and-revert path.
+    """
+    master_rows = _skill_rows(master_md)
+    if not master_rows:
+        return []
+
+    violations: list[dict] = []
+
+    for category, (tailored_row, tailored_terms) in _skill_rows(tailored_md).items():
+        master_entry = master_rows.get(category)
+        if master_entry is None:
+            continue
+        master_row, master_terms = master_entry
+
+        known = {t.lower() for t in master_terms}
+        added = [
+            term for term in tailored_terms
+            if term.lower() not in known and not _mentions(term, master_md)
+        ]
+        if added:
+            violations.append({
+                "original": master_row,
+                "tailored": tailored_row,
+                "supported": False,
+                "severity": "major",
+                "reason": (
+                    f"Technical Skills row '{category}' added "
+                    f"{', '.join(repr(t) for t in added)}, which "
+                    f"{'do' if len(added) > 1 else 'does'} not appear anywhere "
+                    "in the master resume."
+                ),
+            })
+
+    return violations
+
+
+# ---------------------------------------------------------------------------
+# Reverting
+# ---------------------------------------------------------------------------
+
 def revert_violations(tailored_md: str, violations: list[dict]) -> str:
     """
-    Replace each violation's tailored bullet with its original in the Markdown.
+    Replace each violation's tailored text with its original in the Markdown.
 
     Works line-by-line so that identical text appearing in different sections
     is only replaced at the first match for each violation entry, preventing
-    cross-section collisions.
+    cross-section collisions. The line's own prefix decides how it is rewritten,
+    so a reverted bullet keeps its "- " marker and a reverted heading keeps its
+    "###".
 
-    A flagged bullet is dropped instead of rewritten when it has no master
-    counterpart, or when its original is already present in the same section —
+    Content is dropped instead of rewritten when it has no master counterpart,
+    or when a bullet's original is already present in the same section —
     otherwise the revert would leave the section listing the same point twice.
     """
     # Index violations by tailored text for O(1) lookup; track which have been
@@ -170,20 +375,25 @@ def revert_violations(tailored_md: str, violations: list[dict]) -> str:
     for section, raw_line in _iter_lines_with_section(
         tailored_md.splitlines(keepends=True)
     ):
-        stripped = raw_line.strip()
-        if stripped.startswith("- "):
-            bullet_text = stripped[2:].strip()
-            if bullet_text in pending:
-                original = pending.pop(bullet_text)
+        classified = _classify(raw_line)
+        if classified and classified[1] in pending:
+            kind, text = classified
+            original = pending.pop(text)
+            indent = " " * (len(raw_line) - len(raw_line.lstrip()))
+            eol = "\n" if raw_line.endswith("\n") else ""
+
+            if kind == BULLET:
                 section_bullets = present.setdefault(section, set())
-                section_bullets.discard(bullet_text)
+                section_bullets.discard(text)
                 if original == NO_MASTER_MATCH or original in section_bullets:
                     continue
                 section_bullets.add(original)
-                indent = len(raw_line) - len(raw_line.lstrip())
-                eol = "\n" if raw_line.endswith("\n") else ""
-                result.append(" " * indent + "- " + original + eol)
-                continue
+                result.append(f"{indent}- {original}{eol}")
+            else:
+                if original == NO_MASTER_MATCH:
+                    continue
+                result.append(f"{indent}{original}{eol}")
+            continue
         result.append(raw_line)
 
     return "".join(result)
@@ -200,9 +410,9 @@ def dedupe_bullets(md: str) -> str:
 
     result: list[str] = []
     for section, raw_line in _iter_lines_with_section(md.splitlines(keepends=True)):
-        stripped = raw_line.strip()
-        if stripped.startswith("- "):
-            bullet_text = stripped[2:].strip()
+        classified = _classify(raw_line)
+        if classified and classified[0] == BULLET:
+            bullet_text = classified[1]
             section_bullets = seen.setdefault(section, set())
             if bullet_text in section_bullets:
                 continue
@@ -212,20 +422,68 @@ def dedupe_bullets(md: str) -> str:
     return "".join(result)
 
 
+# ---------------------------------------------------------------------------
+# Interactive review
+# ---------------------------------------------------------------------------
+
+def restore_dropped_skills(master_md: str, tailored_md: str) -> str:
+    """
+    Put back any Technical Skills term the tailored resume quietly dropped.
+
+    The tailor is told to keep every skill and reorder freely, so restored terms
+    are appended to the end of their row: the model's prioritisation survives
+    and the keywords it discarded come back. Every dropped term is a keyword an
+    ATS can no longer match, and losing them is pure downside.
+
+    Terms are restored within rows the tailored resume still has. A row deleted
+    outright is left alone, since there is no reliable place to put it back.
+    """
+    master_rows = _skill_rows(master_md)
+    if not master_rows:
+        return tailored_md
+
+    rewrites: dict[str, str] = {}
+    for category, (row_text, terms) in _skill_rows(tailored_md).items():
+        master_entry = master_rows.get(category)
+        if master_entry is None:
+            continue
+        present = {t.lower() for t in terms}
+        missing = [t for t in master_entry[1] if t.lower() not in present]
+        if missing:
+            rewrites[row_text] = f"{row_text}, {', '.join(missing)}"
+
+    if not rewrites:
+        return tailored_md
+
+    result: list[str] = []
+    for raw_line in tailored_md.splitlines(keepends=True):
+        classified = _classify(raw_line)
+        if classified and classified[0] == BULLET and classified[1] in rewrites:
+            indent = " " * (len(raw_line) - len(raw_line.lstrip()))
+            eol = "\n" if raw_line.endswith("\n") else ""
+            result.append(f"{indent}- {rewrites.pop(classified[1])}{eol}")
+            continue
+        result.append(raw_line)
+
+    return "".join(result)
+
+
 def _format_violation_review(violation: dict, index: int, total: int) -> str:
     """Format one flagged edit for interactive review."""
-    lines = [
-        f"Edit {index} of {total}:",
+    severity = violation.get("severity", "")
+    heading = f"Edit {index} of {total}"
+    if severity:
+        heading += f"  [{severity}]"
+    return "\n".join([
+        f"{heading}:",
         f"  Reason: {violation.get('reason', '(no reason given)')}",
         f"  original: {violation.get('original', '')}",
         f"  tailored: {violation.get('tailored', '')}",
-    ]
-    return "\n".join(lines)
+    ])
 
 
-# ---------------------------------------------------------------------------
-# Shared CLI helper — validation report + interactive revert prompt
-# ---------------------------------------------------------------------------
+_PROMPT_OPTIONS = "[y]es / [n]o / [a]ll / [q]uit reviewing: "
+
 
 def report_and_maybe_revert(
     tailored_md: str,
@@ -233,20 +491,21 @@ def report_and_maybe_revert(
     input_fn: Callable[[str], str] | None = None,
 ) -> str:
     """
-    Print the validation summary and, if the judge flagged unsupported edits,
-    walk the user through each flagged bullet and ask whether to revert it.
+    Print the fact-check summary and, if unsupported edits were flagged, walk
+    the user through each one and ask whether to revert it.
 
-    Shared by every CLI entry point (main.py's job_processor and llm_client's
-    standalone CLI) so the revert UX stays identical in one place. Returns the
-    tailored Markdown, with any user-approved reverts applied in-place.
+    Answering `a` reverts every remaining edit and `q` keeps them; both exist so
+    a run with many flags doesn't turn into a long interrogation. EOF (piped or
+    non-interactive input) is treated as "keep", leaving the tailored text
+    untouched.
 
     input_fn defaults to the builtin input(), resolved at call time (not
     bound at import time) so tests can monkeypatch builtins.input.
     """
-    print("\n--- Validation Report ---\n")
+    print("\n--- Fact-Check Report ---\n")
     print(result.summary())
 
-    if result.passed or result.skipped:
+    if not result.violations:
         return tailored_md
 
     if input_fn is None:
@@ -258,28 +517,39 @@ def report_and_maybe_revert(
 
     for i, violation in enumerate(result.violations, start=1):
         print(_format_violation_review(violation, i, total))
-        prompt = (
-            "Remove this bullet? [y/n] "
-            if violation.get("original") == NO_MASTER_MATCH
-            else "Revert this bullet to original? [y/n] "
-        )
-        answer = ""
-        while True:
-            try:
-                answer = input_fn(prompt).strip().lower()
-            except EOFError:
-                print()
-                answer = ""
-                break
-            if answer in ("y", "n"):
-                break
-            print("  Please enter 'y' or 'n'.")
+        action = "Remove this content?" if _is_new_content(violation) else \
+            "Revert this to the master's original?"
+        answer = _ask(input_fn, f"{action} {_PROMPT_OPTIONS}")
+        if answer == "a":
+            to_revert.extend(result.violations[i - 1:])
+            print(f"  Reverting all {total - i + 1} remaining edit(s).\n")
+            break
+        if answer == "q":
+            print("  Keeping all remaining edits.\n")
+            break
         if answer == "y":
             to_revert.append(violation)
         print()
 
     if to_revert:
         tailored_md = revert_violations(tailored_md, to_revert)
-        print(f"Reverted {len(to_revert)} edit(s) to originals.")
+        print(f"Reverted {len(to_revert)} edit(s) to the master's originals.")
 
     return tailored_md
+
+
+def _is_new_content(violation: dict) -> bool:
+    return violation.get("original") == NO_MASTER_MATCH
+
+
+def _ask(input_fn: Callable[[str], str], prompt: str) -> str:
+    """Read a single y/n/a/q answer, treating EOF as 'no'."""
+    while True:
+        try:
+            answer = input_fn(prompt).strip().lower()
+        except EOFError:
+            print()
+            return "n"
+        if answer in ("y", "n", "a", "q"):
+            return answer
+        print("  Please enter 'y', 'n', 'a', or 'q'.")

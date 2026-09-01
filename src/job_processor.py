@@ -1,15 +1,46 @@
+"""
+job_processor.py — orchestrates the audit → tailor → fact-check pipeline.
+
+Everything the LLM does not do lives here: reading the master, persisting the
+audit report, stamping the header role, deduping, trimming to one page, and
+exporting the PDF.
+"""
 import re
+from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
-from llm_client import tailor_resume
+from audit import AuditReport, find_placeholders
+from llm_client import audit_resume, fact_check, tailor_resume
 from pdf_exporter import generate_resume_pdf, get_page_count
-from resume_diff import dedupe_bullets, report_and_maybe_revert
+from resume_diff import (
+    dedupe_bullets,
+    report_and_maybe_revert,
+    restore_dropped_skills,
+)
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _DEFAULT_RESUME = _PROJECT_ROOT / "data/masters/Jeffrey_Ding_CV_Data_Science.md"
 _OUTPUT_DIR = _PROJECT_ROOT / "data/tailored_outputs"
+_AUDIT_DIR = _PROJECT_ROOT / "data/audit_reports"
 
 _MAX_TRIM_PASSES = 8
+
+
+@dataclass
+class ApplicationResult:
+    """Everything a run produced. Paths are None for stages that were skipped."""
+
+    audit: AuditReport | None = None
+    audit_path: Path | None = None
+    md_path: Path | None = None
+    pdf_path: Path | None = None
+
+
+def _slug(text: str) -> str:
+    """Collapse arbitrary user input into something safe for a filename."""
+    cleaned = re.sub(r"[^\w\s-]", "", text).strip()
+    return re.sub(r"[\s_-]+", "_", cleaned) or "Untitled"
 
 
 def _find_section_bounds(lines: list[str], header_pattern: str) -> tuple[int, int]:
@@ -95,11 +126,16 @@ def _trim_one_bullet(markdown_text: str) -> str | None:
                 if re.match(r'^###\s+', lines[i]):
                     block_end = i
                     break
-            # Strip the h3 line and everything up to block_end, trimming blank lines
+            # Strip the h3 line and everything up to block_end, then collapse
+            # the seam to a single blank line so the next heading still reads as
+            # a heading in the saved Markdown.
             kept = lines[:last_h3_idx] + lines[block_end:]
-            # Remove trailing blank lines left by the removal
-            while kept and kept[last_h3_idx - 1:last_h3_idx] == ['']:
-                kept.pop(last_h3_idx - 1)
+            seam = last_h3_idx
+            while seam > 0 and not kept[seam - 1].strip():
+                kept.pop(seam - 1)
+                seam -= 1
+            if 0 < seam < len(kept) and kept[seam].strip():
+                kept.insert(seam, '')
             return '\n'.join(kept)
 
     return None
@@ -112,6 +148,10 @@ def _set_header_role(markdown_text: str, role: str) -> str:
 
     The header line looks like:
         **Data Scientist** | 647-... | ...
+
+    The tailor is told to leave this line alone so that any change it makes is
+    caught by the fact-check; stamping it here instead keeps the title matching
+    the posting without muddying that signal.
     """
     display_role = role.replace("_", " ")
 
@@ -151,61 +191,115 @@ def _ensure_one_page(markdown_text: str) -> str:
     return markdown_text
 
 
+def _read_master(resume_path: Path | None) -> str:
+    resume_path = Path(resume_path) if resume_path else _DEFAULT_RESUME
+    if not resume_path.exists():
+        raise FileNotFoundError(f"resume not found: {resume_path}")
+    return resume_path.read_text()
+
+
+def _display(path: Path) -> Path:
+    try:
+        return path.relative_to(_PROJECT_ROOT)
+    except ValueError:
+        return path
+
+
+def run_audit(
+    job_description: str,
+    company: str,
+    role: str,
+    resume_path: Path | None = None,
+) -> tuple[AuditReport, Path | None]:
+    """
+    Stage 1: score the master resume against the job description and save the
+    report. Returns the report and the path it was written to (None if the
+    audit call failed).
+    """
+    master_md = _read_master(resume_path)
+
+    print("Stage 1/3 — auditing master resume against the job description...",
+          flush=True)
+    audit = audit_resume(master_md, job_description)
+    print(audit.summary())
+
+    if audit.skipped:
+        return audit, None
+
+    _AUDIT_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = date.today().strftime("%Y%m%d")
+    audit_path = _AUDIT_DIR / f"{stamp}_{_slug(company)}_{_slug(role)}_ats_audit.md"
+    audit_path.write_text(audit.markdown)
+    print(f"   Audit report → {_display(audit_path)}")
+
+    return audit, audit_path
+
+
 def process_application(
     job_description: str,
     company: str,
     role: str,
     resume_path: Path | None = None,
-    validate: bool = True,
-) -> tuple[Path, Path]:
+    audit: bool = True,
+    factcheck: bool = True,
+    export_pdf: bool = True,
+) -> ApplicationResult:
     """
-    Full pipeline: tailor master resume → validate → trim to one page → export PDF.
+    Full pipeline: audit → tailor → fact-check → trim to one page → export PDF.
 
-    Returns (md_path, pdf_path). Raises FileNotFoundError if resume_path
-    doesn't exist — callers (e.g. main.py) are responsible for turning that
-    into a user-facing CLI error.
+    Raises FileNotFoundError if resume_path doesn't exist — callers (e.g.
+    main.py) are responsible for turning that into a user-facing CLI error.
     """
-    resume_path = Path(resume_path) if resume_path else _DEFAULT_RESUME
-    if not resume_path.exists():
-        raise FileNotFoundError(f"resume not found: {resume_path}")
+    master_md = _read_master(resume_path)
+    result = ApplicationResult()
 
-    master_md = resume_path.read_text()
+    # 1. Audit
+    if audit:
+        result.audit, result.audit_path = run_audit(
+            job_description, company, role, resume_path
+        )
+        print()
 
-    stem = f"Jeffrey_Ding_CV_{role}"
-    _OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
-    # 1. Tailor + optional judge validation
-    suffix = "" if not validate else " + validate"
-    print(f"Calling Gemini API (tailor{suffix})...", flush=True)
-    tailored_md, result = tailor_resume(
-        master_md,
-        job_description,
-        validate=validate,
+    # 2. Tailor
+    directive_note = (
+        f" against {len(result.audit.directives)} audit directive(s)"
+        if result.audit and result.audit.directives
+        else ""
     )
+    print(f"Stage 2/3 — tailoring resume{directive_note}...", flush=True)
+    tailored_md = tailor_resume(master_md, job_description, audit=result.audit)
 
-    # 2. Report + offer revert if judge found violations
-    tailored_md = report_and_maybe_revert(tailored_md, result)
+    # 3. Fact-check, then let the user revert anything flagged
+    if factcheck:
+        print("\nStage 3/3 — fact-checking against the master resume...", flush=True)
+        validation = fact_check(master_md, tailored_md, job_description)
+        tailored_md = report_and_maybe_revert(tailored_md, validation)
 
-    # 2b. Stamp the header role to match the JD
+    placeholders = find_placeholders(tailored_md)
+    if placeholders:
+        print(
+            "\n⚠  Unfilled placeholders left in the resume: "
+            f"{', '.join(sorted(set(placeholders)))}\n"
+            "   Fill in the real figures in the master resume and re-run."
+        )
+
+    # 4. Post-process: stamp the job title, put back dropped keywords, drop
+    #    repeats, fit one page
     tailored_md = _set_header_role(tailored_md, role)
-
-    # 2c. Drop any bullet repeated within a section
+    tailored_md = restore_dropped_skills(master_md, tailored_md)
     tailored_md = dedupe_bullets(tailored_md)
-
-    # 3. Trim to one page if needed
     tailored_md = _ensure_one_page(tailored_md)
 
-    # 4. Write outputs
-    md_path = _OUTPUT_DIR / f"{stem}.md"
-    pdf_path = _OUTPUT_DIR / f"{stem}.pdf"
+    # 5. Write outputs
+    stem = f"Jeffrey_Ding_CV_{_slug(role)}"
+    _OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    md_path.write_text(tailored_md)
-    try:
-        display = md_path.relative_to(_PROJECT_ROOT)
-    except ValueError:
-        display = md_path
-    print(f"\nMarkdown saved → {display}")
+    result.md_path = _OUTPUT_DIR / f"{stem}.md"
+    result.md_path.write_text(tailored_md)
+    print(f"\nMarkdown saved → {_display(result.md_path)}")
 
-    generate_resume_pdf(tailored_md, str(pdf_path))
+    if export_pdf:
+        result.pdf_path = _OUTPUT_DIR / f"{stem}.pdf"
+        generate_resume_pdf(tailored_md, str(result.pdf_path))
 
-    return md_path, pdf_path
+    return result

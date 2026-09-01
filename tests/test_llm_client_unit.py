@@ -14,17 +14,18 @@ from google.genai.errors import ClientError, ServerError
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import llm_client  # noqa: E402
+from audit import AuditReport  # noqa: E402
 from llm_client import (  # noqa: E402
-    _cli_main,
     _get_client,
-    _validate_changes,
     _with_retry,
-    review_resume,
+    audit_resume,
+    fact_check,
     tailor_resume,
 )
-from resume_diff import BulletChange, ValidationResult  # noqa: E402
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+_MASTER = "# Resume\n\n## Experience\n\n### Acme\n\n- Built a pipeline in Python\n"
 
 
 # ---------------------------------------------------------------------------
@@ -48,6 +49,17 @@ def _fake_response(text: str) -> MagicMock:
     r = MagicMock()
     r.text = text
     return r
+
+
+def _mock_client(text: str) -> MagicMock:
+    client = MagicMock()
+    client.models.generate_content.return_value = _fake_response(text)
+    return client
+
+
+def _patch_client(text: str) -> tuple[MagicMock, object]:
+    client = _mock_client(text)
+    return client, patch("llm_client._get_client", return_value=client)
 
 
 # ---------------------------------------------------------------------------
@@ -142,44 +154,167 @@ class TestWithRetry:
 
 
 # ---------------------------------------------------------------------------
-# _validate_changes (judge call)
+# Stage 1 — audit_resume
 # ---------------------------------------------------------------------------
 
-class TestValidateChanges:
-    def _mock_client(self, response_text: str) -> MagicMock:
-        client = MagicMock()
-        client.models.generate_content.return_value = _fake_response(response_text)
-        return client
+_AUDIT_MD = (
+    "## 1. ATS Score\n\n**Overall ATS score: 61/100**\n\n"
+    "## 4. Tailoring Directives\n\n1. [Skills] Lead with SQL.\n\n"
+    "## 6. Projected Score\n\n"
+    "**Projected ATS score after tailoring: 92/100**\n\n**Reachable:** `Yes`\n"
+)
 
-    def test_no_changes_returns_passed_without_api_call(self):
+
+class TestAuditResume:
+    def test_returns_parsed_report(self):
+        _, patcher = _patch_client(_AUDIT_MD)
+        with patcher:
+            report = audit_resume(_MASTER, "jd")
+        assert report.current_score == 61
+        assert report.projected_score == 92
+        assert report.directives == ["[Skills] Lead with SQL."]
+        assert report.skipped is False
+
+    def test_uses_auditor_model_and_prompt(self):
+        client, patcher = _patch_client(_AUDIT_MD)
+        with patcher:
+            audit_resume(_MASTER, "jd")
+        kwargs = client.models.generate_content.call_args.kwargs
+        assert kwargs["model"] == llm_client._AUDITOR_MODEL
+        assert kwargs["config"].system_instruction == llm_client._AUDITOR_SYSTEM_PROMPT
+
+    def test_user_message_includes_resume_and_jd(self):
+        client, patcher = _patch_client(_AUDIT_MD)
+        with patcher:
+            audit_resume("# My Resume", "Looking for a Pythonista")
+        contents = client.models.generate_content.call_args.kwargs["contents"]
+        assert "## Master Resume" in contents
+        assert "My Resume" in contents
+        assert "## Job Description" in contents
+        assert "Looking for a Pythonista" in contents
+
+    def test_api_failure_returns_skipped_report_instead_of_raising(self):
         client = MagicMock()
-        result = _validate_changes([], "some jd", client)
+        client.models.generate_content.side_effect = RuntimeError("network blip")
+        with patch("llm_client._get_client", return_value=client):
+            report = audit_resume(_MASTER, "jd")
+        assert report.skipped is True
+        assert "RuntimeError" in report.skip_reason
+
+
+# ---------------------------------------------------------------------------
+# Stage 2 — tailor_resume
+# ---------------------------------------------------------------------------
+
+class TestTailorResume:
+    def test_returns_stripped_markdown(self):
+        _, patcher = _patch_client("  # Tailored\n\n- bullet  \n")
+        with patcher:
+            assert tailor_resume(_MASTER, "jd") == "# Tailored\n\n- bullet"
+
+    def test_uses_tailor_model_and_prompt(self):
+        client, patcher = _patch_client("# Tailored")
+        with patcher:
+            tailor_resume(_MASTER, "jd")
+        kwargs = client.models.generate_content.call_args.kwargs
+        assert kwargs["model"] == llm_client._TAILOR_MODEL
+        assert kwargs["config"].system_instruction == llm_client._TAILOR_SYSTEM_PROMPT
+
+    def test_audit_report_is_appended_to_the_prompt(self):
+        client, patcher = _patch_client("# Tailored")
+        audit = AuditReport(markdown="## 4. Tailoring Directives\n\n1. Do the thing.")
+        with patcher:
+            tailor_resume(_MASTER, "jd", audit=audit)
+        contents = client.models.generate_content.call_args.kwargs["contents"]
+        assert "## ATS Audit" in contents
+        assert "1. Do the thing." in contents
+
+    def test_no_audit_section_when_audit_omitted(self):
+        client, patcher = _patch_client("# Tailored")
+        with patcher:
+            tailor_resume(_MASTER, "jd")
+        assert "## ATS Audit" not in (
+            client.models.generate_content.call_args.kwargs["contents"]
+        )
+
+    def test_skipped_audit_is_not_sent(self):
+        client, patcher = _patch_client("# Tailored")
+        audit = AuditReport(markdown="partial", skipped=True, skip_reason="503")
+        with patcher:
+            tailor_resume(_MASTER, "jd", audit=audit)
+        assert "## ATS Audit" not in (
+            client.models.generate_content.call_args.kwargs["contents"]
+        )
+
+    def test_api_failure_propagates(self):
+        client = MagicMock()
+        client.models.generate_content.side_effect = RuntimeError("network blip")
+        with patch("llm_client._get_client", return_value=client):
+            with pytest.raises(RuntimeError):
+                tailor_resume(_MASTER, "jd")
+
+
+# ---------------------------------------------------------------------------
+# Stage 3 — fact_check
+# ---------------------------------------------------------------------------
+
+_CHANGED = "# Resume\n\n## Experience\n\n### Acme\n\n- Built a Kafka pipeline\n"
+
+
+class TestFactCheck:
+    def test_identical_resume_passes_without_an_api_call(self):
+        client, patcher = _patch_client("[]")
+        with patcher:
+            result = fact_check(_MASTER, _MASTER, "jd")
         assert result.passed is True
+        assert result.reviewed == 0
         client.models.generate_content.assert_not_called()
 
     def test_all_supported_returns_passed(self):
-        verdicts = [
-            {"supported": True, "bullet": "b1"},
-            {"supported": True, "bullet": "b2"},
-        ]
-        client = self._mock_client(json.dumps(verdicts))
-        changes = [BulletChange(section="Exp", original="old", tailored="new")]
-        result = _validate_changes(changes, "jd text", client)
+        verdicts = [{"original": "a", "tailored": "b", "supported": True}]
+        _, patcher = _patch_client(json.dumps(verdicts))
+        with patcher:
+            result = fact_check(_MASTER, _CHANGED, "jd")
         assert result.passed is True
         assert result.violations == []
+        assert result.reviewed == 1
 
-    def test_violation_returns_failed(self):
-        verdicts = [{"supported": False, "bullet": "fabricated"}]
-        client = self._mock_client(json.dumps(verdicts))
-        changes = [BulletChange(section="Exp", original="old", tailored="fabricated")]
-        result = _validate_changes(changes, "jd text", client)
+    def test_unsupported_edit_returns_failed(self):
+        verdicts = [{
+            "original": "Built a pipeline in Python",
+            "tailored": "Built a Kafka pipeline",
+            "supported": False,
+            "severity": "major",
+            "reason": "Kafka is not in the master.",
+        }]
+        _, patcher = _patch_client(json.dumps(verdicts))
+        with patcher:
+            result = fact_check(_MASTER, _CHANGED, "jd")
         assert result.passed is False
-        assert len(result.violations) == 1
+        assert len(result.major_violations) == 1
+
+    def test_message_carries_the_full_master_as_ground_truth(self):
+        client, patcher = _patch_client("[]")
+        with patcher:
+            fact_check(_MASTER, _CHANGED, "jd text")
+        contents = client.models.generate_content.call_args.kwargs["contents"]
+        assert "## Master Resume" in contents
+        assert "Built a pipeline in Python" in contents
+        assert "## Edits to Review" in contents
+        assert "Kind: bullet" in contents
+
+    def test_requests_structured_json(self):
+        client, patcher = _patch_client("[]")
+        with patcher:
+            fact_check(_MASTER, _CHANGED, "jd")
+        config = client.models.generate_content.call_args.kwargs["config"]
+        assert config.response_mime_type == "application/json"
+        assert config.response_schema is llm_client._FACTCHECK_SCHEMA
 
     def test_json_decode_error_skips(self):
-        client = self._mock_client("not valid json {{")
-        changes = [BulletChange(section="Exp", original="old", tailored="new")]
-        result = _validate_changes(changes, "jd", client)
+        _, patcher = _patch_client("not valid json {{")
+        with patcher:
+            result = fact_check(_MASTER, _CHANGED, "jd")
         assert result.passed is True
         assert result.skipped is True
         assert "JSONDecodeError" in result.skip_reason
@@ -187,298 +322,55 @@ class TestValidateChanges:
     def test_generic_exception_skips(self):
         client = MagicMock()
         client.models.generate_content.side_effect = RuntimeError("network blip")
-        changes = [BulletChange(section="Exp", original="old", tailored="new")]
-        result = _validate_changes(changes, "jd", client)
+        with patch("llm_client._get_client", return_value=client):
+            result = fact_check(_MASTER, _CHANGED, "jd")
         assert result.passed is True
         assert result.skipped is True
         assert "RuntimeError" in result.skip_reason
 
 
-# ---------------------------------------------------------------------------
-# tailor_resume
-# ---------------------------------------------------------------------------
+_SKILLS_MASTER = (
+    "## Technical Skills\n\n- **Languages:** Python, R\n\n"
+    "## Experience\n\n### Acme\n\n- Built a pipeline in Python\n"
+)
+_SKILLS_PADDED = _SKILLS_MASTER.replace(
+    "- **Languages:** Python, R", "- **Languages:** Python, R, Rust"
+)
 
-class TestTailorResume:
-    def _mock_tailor_response(self, text: str) -> MagicMock:
+
+class TestFactCheckSkillsIntegrity:
+    """Padded Technical Skills rows are caught without trusting the model."""
+
+    def test_flagged_even_when_the_model_approves(self):
+        verdicts = [{
+            "original": "- **Languages:** Python, R",
+            "tailored": "- **Languages:** Python, R, Rust",
+            "supported": True,
+        }]
+        _, patcher = _patch_client(json.dumps(verdicts))
+        with patcher:
+            result = fact_check(_SKILLS_MASTER, _SKILLS_PADDED, "jd")
+        assert result.passed is False
+        assert "'Rust'" in result.violations[0]["reason"]
+
+    def test_not_duplicated_when_the_model_flags_it_too(self):
+        verdicts = [{
+            "original": "**Languages:** Python, R",
+            "tailored": "**Languages:** Python, R, Rust",
+            "supported": False,
+            "severity": "major",
+            "reason": "Rust is not in the master.",
+        }]
+        _, patcher = _patch_client(json.dumps(verdicts))
+        with patcher:
+            result = fact_check(_SKILLS_MASTER, _SKILLS_PADDED, "jd")
+        assert len(result.violations) == 1
+
+    def test_survives_a_skipped_model_call(self):
         client = MagicMock()
-        client.models.generate_content.return_value = _fake_response(text)
-        return client
-
-    def test_validate_false_skips_judge(self):
-        client = self._mock_tailor_response("# Tailored\n\n- bullet")
-        with patch("llm_client._get_client", return_value=client), \
-             patch("llm_client._validate_changes") as mock_judge:
-            tailored, result = tailor_resume(
-                "# Master\n\n- bullet", "jd", validate=False
-            )
-        mock_judge.assert_not_called()
+        client.models.generate_content.side_effect = RuntimeError("network blip")
+        with patch("llm_client._get_client", return_value=client):
+            result = fact_check(_SKILLS_MASTER, _SKILLS_PADDED, "jd")
         assert result.skipped is True
-        assert result.skip_reason == "validate=False"
-        assert "Tailored" in tailored
-
-    def test_validate_true_no_changes(self):
-        master = "# Resume\n\n## Exp\n- Same bullet\n"
-        client = self._mock_tailor_response(master)
-        with patch("llm_client._get_client", return_value=client), \
-             patch("llm_client._validate_changes") as mock_judge:
-            tailor_resume(master, "jd", validate=True)
-        mock_judge.assert_called_once()
-        changes_passed = mock_judge.call_args[0][0]
-        assert changes_passed == []
-
-    def test_validate_true_with_changes(self):
-        master = "# Resume\n\n## Exp\n- Old bullet\n"
-        tailored_text = "# Resume\n\n## Exp\n- New bullet\n"
-        client = self._mock_tailor_response(tailored_text)
-        validation = ValidationResult(passed=True)
-        with patch("llm_client._get_client", return_value=client), \
-             patch(
-                 "llm_client._validate_changes", return_value=validation
-             ) as mock_judge:
-            tailored, result = tailor_resume(master, "jd", validate=True)
-        mock_judge.assert_called_once()
-        assert result is validation
-        assert "New bullet" in tailored
-
-
-
-# ---------------------------------------------------------------------------
-# review_resume (editor call)
-# ---------------------------------------------------------------------------
-
-class TestReviewResume:
-    def _mock_client(self, text: str) -> MagicMock:
-        client = MagicMock()
-        client.models.generate_content.return_value = _fake_response(text)
-        return client
-
-    def test_returns_stripped_model_text(self):
-        client = self._mock_client("  ## 1. Match Analysis\n...  \n")
-        with patch("llm_client._get_client", return_value=client):
-            feedback = review_resume("# Resume\n- bullet", "jd text")
-        assert feedback == "## 1. Match Analysis\n..."
-
-    def test_uses_editor_model_and_system_prompt(self):
-        client = self._mock_client("feedback")
-        with patch("llm_client._get_client", return_value=client):
-            review_resume("# Resume", "jd")
-        _, kwargs = client.models.generate_content.call_args
-        assert kwargs["model"] == llm_client._EDITOR_MODEL
-        assert kwargs["config"].system_instruction == llm_client._EDITOR_SYSTEM_PROMPT
-
-    def test_user_message_includes_resume_and_jd(self):
-        client = self._mock_client("feedback")
-        with patch("llm_client._get_client", return_value=client):
-            review_resume("# My Resume", "Looking for a Pythonista")
-        sent_contents = client.models.generate_content.call_args.kwargs["contents"]
-        assert "My Resume" in sent_contents
-        assert "Looking for a Pythonista" in sent_contents
-        assert "## Master Resume" in sent_contents
-        assert "## Job Description" in sent_contents
-
-
-# ---------------------------------------------------------------------------
-# _cli_main
-# ---------------------------------------------------------------------------
-
-class TestCLIMain:
-    """Tests for the _cli_main() function (CLI entry point)."""
-
-    def _make_resume(
-        self, tmp_path: Path, content: str = "# Resume\n\n- bullet\n"
-    ) -> Path:
-        p = tmp_path / "resume.md"
-        p.write_text(content)
-        return p
-
-    def _make_jd(
-        self, tmp_path: Path, content: str = "Looking for a Python dev."
-    ) -> Path:
-        p = tmp_path / "jd.txt"
-        p.write_text(content)
-        return p
-
-    def test_resume_not_found_exits(self, tmp_path, capsys):
-        with pytest.raises(SystemExit) as exc:
-            _cli_main([
-                "--resume", str(tmp_path / "missing.md"),
-                "--jd", str(tmp_path / "x.txt"),
-            ])
-        assert exc.value.code == 1
-        assert "resume not found" in capsys.readouterr().err
-
-    def test_jd_file_not_found_exits(self, tmp_path, capsys):
-        resume = self._make_resume(tmp_path)
-        with pytest.raises(SystemExit) as exc:
-            _cli_main(["--resume", str(resume), "--jd", str(tmp_path / "missing.txt")])
-        assert exc.value.code == 1
-        assert "JD file not found" in capsys.readouterr().err
-
-    def test_empty_jd_exits(self, tmp_path, capsys):
-        resume = self._make_resume(tmp_path)
-        jd = self._make_jd(tmp_path, content="   ")
-        with pytest.raises(SystemExit) as exc:
-            _cli_main(["--resume", str(resume), "--jd", str(jd)])
-        assert exc.value.code == 1
-        assert "job description is empty" in capsys.readouterr().err
-
-    def test_successful_run_writes_out_file(self, tmp_path):
-        resume = self._make_resume(tmp_path)
-        jd = self._make_jd(tmp_path)
-        out = tmp_path / "output.md"
-        validation = ValidationResult(passed=True, skipped=False)
-        validation.summary = MagicMock(return_value="All good.")
-        with patch(
-            "llm_client.tailor_resume", return_value=("# Tailored\n", validation)
-        ):
-            _cli_main(["--resume", str(resume), "--jd", str(jd), "--out", str(out)])
-        assert out.exists()
-        assert "Tailored" in out.read_text()
-
-    def test_successful_run_prints_to_stdout(self, tmp_path, capsys):
-        resume = self._make_resume(tmp_path)
-        jd = self._make_jd(tmp_path)
-        validation = ValidationResult(passed=True, skipped=False)
-        validation.summary = MagicMock(return_value="All good.")
-        with patch(
-            "llm_client.tailor_resume", return_value=("# Tailored\n", validation)
-        ):
-            _cli_main(["--resume", str(resume), "--jd", str(jd)])
-        out = capsys.readouterr().out
-        assert "Tailored Resume" in out
-        assert "# Tailored" in out
-
-    def test_no_validate_flag(self, tmp_path):
-        resume = self._make_resume(tmp_path)
-        jd = self._make_jd(tmp_path)
-        validation = ValidationResult(
-            passed=True, skipped=True, skip_reason="validate=False"
-        )
-        validation.summary = MagicMock(return_value="Skipped.")
-        with patch(
-            "llm_client.tailor_resume", return_value=("# Out\n", validation)
-        ) as mock_tr:
-            _cli_main(["--resume", str(resume), "--jd", str(jd), "--no-validate"])
-        # validate is always passed as a keyword arg by the CLI
-        assert mock_tr.call_args.kwargs["validate"] is False
-
-    def test_violations_user_reverts(self, tmp_path, capsys):
-        resume = self._make_resume(tmp_path)
-        jd = self._make_jd(tmp_path)
-        violation = {"bullet": "fabricated", "reason": "hallucinated"}
-        validation = ValidationResult(passed=False, violations=[violation])
-        validation.summary = MagicMock(return_value="FAILED")
-        with patch("llm_client.tailor_resume", return_value=("# Out\n", validation)), \
-             patch(
-                 "resume_diff.revert_violations", return_value="# Reverted\n"
-             ) as mock_rv, \
-             patch("builtins.input", return_value="y"):
-            _cli_main(["--resume", str(resume), "--jd", str(jd)])
-        mock_rv.assert_called_once()
-        assert "Reverted" in capsys.readouterr().out
-
-    def test_violations_user_declines_revert(self, tmp_path):
-        resume = self._make_resume(tmp_path)
-        jd = self._make_jd(tmp_path)
-        violation = {"bullet": "fabricated", "reason": "hallucinated"}
-        validation = ValidationResult(passed=False, violations=[violation])
-        validation.summary = MagicMock(return_value="FAILED")
-        with patch("llm_client.tailor_resume", return_value=("# Out\n", validation)), \
-             patch("resume_diff.revert_violations") as mock_rv, \
-             patch("builtins.input", return_value="n"):
-            _cli_main(["--resume", str(resume), "--jd", str(jd)])
-        mock_rv.assert_not_called()
-
-    def test_violations_eof_on_input(self, tmp_path):
-        resume = self._make_resume(tmp_path)
-        jd = self._make_jd(tmp_path)
-        violation = {"bullet": "fabricated"}
-        validation = ValidationResult(passed=False, violations=[violation])
-        validation.summary = MagicMock(return_value="FAILED")
-        with patch("llm_client.tailor_resume", return_value=("# Out\n", validation)), \
-             patch("resume_diff.revert_violations") as mock_rv, \
-             patch("builtins.input", side_effect=EOFError):
-            _cli_main(["--resume", str(resume), "--jd", str(jd)])
-        mock_rv.assert_not_called()
-
-    def test_stdin_jd_tty(self, tmp_path, capsys):
-        """When no --jd flag and stdin is a tty, it prints a prompt."""
-        resume = self._make_resume(tmp_path)
-        validation = ValidationResult(passed=True, skipped=False)
-        validation.summary = MagicMock(return_value="OK")
-        fake_stdin = MagicMock()
-        fake_stdin.isatty.return_value = True
-        fake_stdin.read.return_value = "A job description."
-        with patch("llm_client.tailor_resume", return_value=("# Out\n", validation)), \
-             patch("sys.stdin", fake_stdin):
-            _cli_main(["--resume", str(resume)])
-        out = capsys.readouterr().out
-        assert "Paste job description" in out
-
-    def test_stdin_jd_non_tty(self, tmp_path, capsys):
-        """When no --jd flag and stdin is piped, no prompt is printed."""
-        resume = self._make_resume(tmp_path)
-        validation = ValidationResult(passed=True, skipped=False)
-        validation.summary = MagicMock(return_value="OK")
-        fake_stdin = MagicMock()
-        fake_stdin.isatty.return_value = False
-        fake_stdin.read.return_value = "A job description."
-        with patch("llm_client.tailor_resume", return_value=("# Out\n", validation)), \
-             patch("sys.stdin", fake_stdin):
-            _cli_main(["--resume", str(resume)])
-        out = capsys.readouterr().out
-        assert "Paste job description" not in out
-
-    def test_review_flag_saves_feedback_and_skips_tailor(self, tmp_path, capsys):
-        resume = self._make_resume(tmp_path)
-        jd = self._make_jd(tmp_path)
-        with patch(
-            "llm_client.review_resume", return_value="## 1. Match Analysis\n..."
-        ) as mock_review, \
-             patch("llm_client.tailor_resume") as mock_tailor:
-            _cli_main(["--resume", str(resume), "--jd", str(jd), "--review"])
-        mock_review.assert_called_once()
-        mock_tailor.assert_not_called()
-        out = capsys.readouterr().out
-        assert "Review feedback saved" in out
-
-    def test_review_flag_writes_to_out_file(self, tmp_path):
-        resume = self._make_resume(tmp_path)
-        jd = self._make_jd(tmp_path)
-        out_file = tmp_path / "feedback.md"
-        with patch("llm_client.review_resume", return_value="feedback text"), \
-             patch("llm_client.tailor_resume") as mock_tailor:
-            _cli_main([
-                "--resume", str(resume), "--jd", str(jd),
-                "--review", "--out", str(out_file),
-            ])
-        mock_tailor.assert_not_called()
-        assert out_file.read_text() == "feedback text"
-
-    def test_review_flag_auto_saves_to_review_feedback_dir(self, tmp_path, capsys):
-        resume = self._make_resume(tmp_path)
-        jd = self._make_jd(tmp_path)
-        with patch(
-            "llm_client.review_resume", return_value="## 6. Top 5 Priorities\n1. Fix X."
-        ) as mock_review, \
-             patch("llm_client.tailor_resume") as mock_tailor, \
-             patch("llm_client._REVIEW_FEEDBACK_DIR", tmp_path):
-            _cli_main(["--resume", str(resume), "--jd", str(jd), "--review"])
-        mock_review.assert_called_once()
-        mock_tailor.assert_not_called()
-        saved = list(tmp_path.glob("*_review_feedback.md"))
-        assert len(saved) == 1
-        assert saved[0].read_text() == "## 6. Top 5 Priorities\n1. Fix X."
-
-    def test_no_review_flag_calls_tailor_and_skips_editor(self, tmp_path):
-        resume = self._make_resume(tmp_path)
-        jd = self._make_jd(tmp_path)
-        validation = ValidationResult(passed=True, skipped=False)
-        validation.summary = MagicMock(return_value="OK")
-        with patch("llm_client.review_resume") as mock_review, \
-             patch(
-                 "llm_client.tailor_resume", return_value=("# Out\n", validation)
-             ) as mock_tailor:
-            _cli_main(["--resume", str(resume), "--jd", str(jd)])
-        mock_review.assert_not_called()
-        mock_tailor.assert_called_once()
+        assert result.passed is False
+        assert len(result.violations) == 1

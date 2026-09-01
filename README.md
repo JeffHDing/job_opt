@@ -3,35 +3,75 @@
 [![CI](https://github.com/JeffHDing/job_opt/actions/workflows/ci.yml/badge.svg)](https://github.com/JeffHDing/job_opt/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/JeffHDing/job_opt/branch/main/graph/badge.svg)](https://codecov.io/gh/JeffHDing/job_opt)
 
-An LLM-powered CLI tool that tailors a master Markdown resume to a specific job description using the Gemini API, runs a second judge pass to flag unsupported edits, auto-trims to one page if needed, and exports the result as an ATS-friendly PDF.
+A CLI that tailors a master Markdown resume to a job description in three stages: an **ATS audit** that scores the resume and issues mechanical tailoring directives, a **tailor** pass that executes those directives, and a **fact-check** pass that catches anything the tailor claimed beyond what the master supports. The result is trimmed to one page and exported as an ATS-friendly PDF.
+
+The premise is that a tailoring model left to its own devices will quietly invent things to hit keywords. So the model is never trusted twice: what the auditor asks for, the tailor must justify against the master, and what the tailor produces, the fact-checker re-derives from the master before it reaches the page.
 
 ---
 
-## Repository Structure
+## The three stages
+
+### 1. Audit — `prompts/auditor_system.txt`
+
+Scores the master resume against the job description exactly as an ATS would: literally, on the text present. A 100-point rubric covers hard skills (30), responsibility alignment (20), quantified impact (15), title match (10), depth and recency (10), hard qualifications (10), and parseability (5).
+
+The report separates gaps that tailoring can close from gaps that need experience the candidate does not have, then states a projected score and whether 90%+ is honestly reachable. Its directives are restricted to a five-verb grammar — `MOVE`, `REORDER`, `REPLACE`, `DROP`, `SURFACE` — each of which must quote text that already appears in the master. There is deliberately no verb for "add a bullet" or "rename a role", because those cannot be expressed without fabricating.
+
+Reports are saved to `data/audit_reports/YYYYMMDD_{Company}_{Role}_ats_audit.md`.
+
+### 2. Tailor — `prompts/tailor_system.txt`
+
+Receives the master resume, the job description, and the audit. It executes the audit's directives, skipping any it cannot carry out without a claim the master does not support. Its other rules cover structure preservation, an untouchable identity block (name, contact line, role titles, employers, dates), Technical Skills fidelity, keyword substitution over keyword appending, and hard one-page limits.
+
+It is explicitly forbidden from emitting the auditor's `[X]%` placeholders, which are meant for the human to fill into the master.
+
+### 3. Fact-check — `prompts/factcheck_system.txt`
+
+Diffs the tailored resume against the master and sends only what changed for review, with the full master as the sole ground truth. The job description is given as motive, never as evidence.
+
+Where a claim must be supported depends on the claim: work claims must be supported by the master's text for *that specific role or project* (a tool in the Skills section is not evidence it was used at a particular job), Skills claims must be supported anywhere in the master, and identity content must match verbatim. Each flagged edit comes back with a severity of `minor` (overstated scope) or `major` (would mislead an interviewer), and you review them one at a time.
+
+---
+
+## Guardrails
+
+Model judgement handles the parts that need reading comprehension. Everything mechanically checkable is checked in Python, so it holds even when the model is wrong or the API call fails.
+
+| Guardrail | How | Where |
+|---|---|---|
+| Identity content is verbatim | Non-bullet lines — headings, employers, dates, contact details — are diffed against the master and flagged if they appear nowhere in it | `resume_diff.find_changed_lines` |
+| No invented skills | Every term added to a Technical Skills row must appear in the master as a whole word; violations are raised at `major` severity even when the model approved the edit | `resume_diff.find_unsupported_skills` |
+| No dropped keywords | Terms the tailor removed from a Skills row are appended back, preserving the tailor's ordering | `resume_diff.restore_dropped_skills` |
+| No leftover placeholders | The tailored output is scanned for `[X]`-style brackets, ignoring Markdown links | `audit.find_placeholders` |
+| No duplicate bullets | Repeats within a section are stripped | `resume_diff.dedupe_bullets` |
+| Job title matches the posting | Stamped into the header after the fact-check, so a tailor edit to that line is still caught | `job_processor._set_header_role` |
+| One page | The PDF is rendered in memory and bullets are trimmed until it fits, least-important first | `job_processor._ensure_one_page` |
+
+Stages 1 and 3 degrade rather than fail: a transient API error marks them skipped and the run continues, so a network blip never costs you the tailored resume. Stage 2 raises, because there is no output without it. Every call retries on 503 and 429 with exponential backoff.
+
+---
+
+## Repository structure
 
 ```
 job_opt/
-├── main.py                          # Top-level CLI entry point: tailor + validate + PDF
+├── main.py                          # The single CLI entry point
 ├── src/
-│   ├── job_processor.py             # Pipeline orchestrator: tailor → validate → PDF
-│   ├── llm_client.py                # Gemini API calls (tailor/judge/editor) + standalone CLI
-│   ├── resume_diff.py               # Pure-Python bullet parser, differ, revert utils
-│   └── pdf_exporter.py              # Markdown → WeasyPrint PDF renderer + page-count helper
+│   ├── job_processor.py             # Pipeline orchestration + post-processing
+│   ├── llm_client.py                # The three Gemini agents
+│   ├── audit.py                     # Audit report parsing (scores, directives)
+│   ├── resume_diff.py               # Bullet/line parsing, diffing, revert, integrity checks
+│   └── pdf_exporter.py              # Markdown → WeasyPrint PDF + page-count helper
 ├── prompts/
-│   ├── tailor_system.txt            # System prompt for the tailor pass
-│   ├── judge_system.txt             # System prompt for the judge pass
-│   └── editor_system.txt            # System prompt for the standalone editor/review pass
+│   ├── auditor_system.txt           # Stage 1: ATS scoring + tailoring directives
+│   ├── tailor_system.txt            # Stage 2: directive-driven rewriting
+│   └── factcheck_system.txt         # Stage 3: hallucination detection
 ├── data/
 │   ├── masters/                     # Master resumes (source of truth)
 │   ├── job_descriptions/            # Job description text files
-│   ├── tailored_outputs/            # Generated .md/.pdf land here (gitignored)
-│   └── review_feedback/             # Generated editor feedback reports (gitignored)
+│   ├── audit_reports/               # Generated ATS audits (gitignored)
+│   └── tailored_outputs/            # Generated .md/.pdf (gitignored)
 ├── tests/
-│   ├── test_resume_diff.py          # Unit tests for bullet diff/revert/report logic
-│   ├── test_job_processor.py        # Unit tests for the pipeline orchestrator (mocked)
-│   ├── test_llm_client_unit.py      # Unit tests for llm_client (mocked API)
-│   ├── test_llm_client.py           # Integration tests (requires GEMINI_API_KEY)
-│   └── test_pdf_exporter.py         # PDF rendering tests
 ├── environment.yml                  # Conda environment spec
 ├── requirements-dev.txt             # Pip deps for CI / non-Conda setups
 ├── pyproject.toml                   # Ruff, pytest markers, coverage config
@@ -65,25 +105,18 @@ cp .env.example .env
 # Edit .env and set GEMINI_API_KEY=<your key>
 ```
 
-Get a free key at [aistudio.google.com](https://aistudio.google.com/). The free tier supports ~500 requests/day; each tailoring run costs 2 requests (1 tailor + 1 judge), giving ~250 runs/day.
+Get a free key at [aistudio.google.com](https://aistudio.google.com/). The free tier allows ~500 requests/day. A full run costs 3 requests, one per stage, giving ~165 applications/day; `--no-audit` or `--no-factcheck` drops that to 2.
 
 ---
 
 ## Usage
 
-### Tailor a resume and export a PDF
-
 The simplest workflow is clipboard-based:
 
 1. Copy the full job description from the job board.
-2. Run:
-
-```bash
-python main.py
-```
-
+2. Run `python main.py`.
 3. Enter the company and role title when prompted.
-4. Review the clipboard preview and press Enter (or type `y`) to use it.
+4. Press Enter to accept the clipboard preview.
 
 ```text
 Company: Stripe
@@ -95,130 +128,104 @@ Job description found in clipboard:
 Use this job description? [Y/n]:
 ```
 
-Type `n` to reject the clipboard contents and paste the job description into
-the terminal instead. Finish terminal input with Ctrl-D (Ctrl-Z on Windows).
+Type `n` to reject the clipboard and paste into the terminal instead, finishing with Ctrl-D (Ctrl-Z on Windows). Job-description input priority is `--jd`, then piped stdin, then the clipboard.
 
-Command-line flags can bypass some or all prompts:
+A run looks like this:
 
-```bash
-# Provide company and role while using the clipboard
-python main.py --company Stripe --role "Data Scientist"
+```text
+Stage 1/3 — auditing master resume against the job description...
+   Current ATS score:   63/100
+   Projected after tailoring: 78/100
+   ✗  90%+ NOT reachable without new experience — see 'Unclosable without new experience' in the report.
+   4 tailoring directive(s) issued.
+   Audit report → data/audit_reports/20260831_Stripe_Data_Scientist_ats_audit.md
 
-# Read the job description from a file instead of the clipboard
-python main.py --company Stripe --role "Data Scientist" \
-               --jd data/job_descriptions/stripe_ds.txt
+Stage 2/3 — tailoring resume against 4 audit directive(s)...
 
-# Pipe a job description through stdin
-pbpaste | python main.py --company Stripe --role "Data Scientist"
+Stage 3/3 — fact-checking against the master resume...
 
-# Use a different master resume
-python main.py --company Stripe --role "Data Scientist" \
-               --jd data/job_descriptions/stripe_ds.txt \
-               --resume data/masters/my_other_resume.md
+--- Fact-Check Report ---
 
-# Skip the judge validation pass (faster, 1 API call)
-python main.py --company Stripe --role "Data Scientist" \
-               --jd data/job_descriptions/stripe_ds.txt \
-               --no-validate
+✗  Fact-check failed — 2 unsupported edit(s) out of 5 reviewed (1 major):
+   ...
 ```
 
-Job-description input priority is `--jd`, piped stdin, then the clipboard.
-Outputs are saved to `data/tailored_outputs/YYYYMMDD_{Company}_{Role}.md` and `.pdf`.
+Each flagged edit is then shown individually with `[y]es / [n]o / [a]ll / [q]uit reviewing`, where `a` reverts everything remaining and `q` keeps it.
 
-When the judge flags unsupported edits, the CLI walks you through each flagged bullet and asks whether to revert it before writing the files.
+### Scoring without tailoring
+
+`--audit-only` runs stage 1 and stops. Use it to see where a resume stands before spending calls on tailoring, or to collect the audit's Quantification Requests — the bullets that need real numbers — and fold them into your master resume.
+
+```bash
+python main.py -c Stripe -r "Data Scientist" \
+               -j data/job_descriptions/stripe_ds.txt --audit-only
+```
+
+### Other examples
+
+```bash
+# Read the job description from a file
+python main.py -c Stripe -r "Data Scientist" -j data/job_descriptions/stripe_ds.txt
+
+# Pipe a job description through stdin
+pbpaste | python main.py -c Stripe -r "Data Scientist"
+
+# Use a different master resume
+python main.py -c Stripe -r "Data Scientist" --resume data/masters/my_other.md
+
+# Iterate quickly: skip the audit and the PDF export
+python main.py -c Stripe -r "Data Scientist" --no-audit --no-pdf
+```
 
 ### All options
 
 | Flag | Short | Default | Description |
 |---|---|---|---|
-| `--company` | `-c` | prompt | Company name (e.g. `Stripe`) |
-| `--role` | `-r` | prompt | Job title (e.g. `Data Scientist`) |
-| `--jd` | `-j` | clipboard | Path to job description text file; piped stdin is also supported |
-| `--resume` | | `data/masters/Jeffrey_Ding_CV_Data_Science.md` | Master resume Markdown file |
-| `--no-validate` | | off | Skip the judge validation step |
+| `--company` | `-c` | prompt | Company name, used in the audit report filename |
+| `--role` | `-r` | prompt | Job title; also stamped into the resume header |
+| `--jd` | `-j` | clipboard | Job description file; piped stdin also works |
+| `--resume` | | `data/masters/Jeffrey_Ding_CV_Data_Science.md` | Master resume Markdown |
+| `--audit-only` | | off | Run stage 1 and stop |
+| `--no-audit` | | off | Skip stage 1; tailor without directives |
+| `--no-factcheck` | | off | Skip stage 3 |
+| `--no-pdf` | | off | Write Markdown only |
 
-### Getting recruiter-style feedback (editor agent)
-
-`llm_client.py` also exposes a standalone CLI for the "editor" agent — a
-senior-recruiter persona that critiques your master resume against a job
-description and writes a blunt, structured Markdown feedback report (match
-analysis, quantification gaps, keyword gaps, STAR rewrites, ATS tips, and a
-ranked top-5 priority list). It's independent of the `main.py` tailor/PDF
-pipeline — nothing currently feeds this feedback back into tailoring.
-
-```bash
-python src/llm_client.py --review --resume data/masters/my_resume.md \
-                          --jd data/job_descriptions/stripe_ds.txt
-```
-
-Saves to `data/review_feedback/YYYYMMDD_HHMMSS_review_feedback.md` unless
-`--out FILE` is given. `llm_client.py` can also be run without `--review` to
-tailor a resume without exporting a PDF (useful for quick iteration); see
-`python src/llm_client.py --help` for its full flag set.
-
----
-
-## How It Works
-
-1. **Tailor** — `llm_client.tailor_resume()` sends the master resume + job description to `gemini-3.1-flash-lite` with the system prompt in `prompts/tailor_system.txt`. The prompt enforces 8 rules: preserve structure, preserve all Technical Skills entries (adding only skills explicitly present in Experience/Projects), reorder bullets by relevance, substitute keywords only when directly supported by the original text, stay factual, avoid redundancy, output clean Markdown, and respect hard one-page limits (≤3 experience roles × ≤4 bullets, ≤5 projects × ≤2 bullets, ≤20 total bullets across both sections).
-2. **Diff** — `resume_diff.find_changed_bullets()` compares the tailored output against the master and extracts only the changed bullets (original + tailored pairs).
-3. **Validate** — A second Gemini call (prompt in `prompts/judge_system.txt`) reviews the changed bullets and the job description, flagging any edits that add unsupported claims.
-4. **Report + revert** — `resume_diff.report_and_maybe_revert()` prints the validation summary and, if violations were found, prompts bullet-by-bullet to revert each flagged edit to its original. This is shared by both `job_processor.py` and `llm_client.py`'s standalone CLI.
-5. **Auto-trim** — `job_processor._ensure_one_page()` calls `pdf_exporter.get_page_count()` to render the Markdown in-memory and check the page count. If it overflows, `_trim_one_bullet()` removes one bullet at a time (last project bullet → last experience bullet → entire last project entry) until the output fits on one page, up to 8 trim passes.
-6. **Export** — `pdf_exporter.generate_resume_pdf()` converts the final Markdown to a Letter PDF via WeasyPrint (no floats, no images — purely linear for ATS parsing).
-
-Separately, `llm_client.review_resume()` (prompt in `prompts/editor_system.txt`) runs a senior-recruiter "editor" pass over the master resume and job description, producing a standalone feedback report — see [Getting recruiter-style feedback](#getting-recruiter-style-feedback-editor-agent) above. It does not currently feed into the tailor/validate/export pipeline.
-
-Every Gemini call retries automatically on 503 (overload) and 429 (rate-limit) with exponential backoff.
-
-The auto-trim loop in step 5 is a safety net — the tailor prompt's hard bullet-count limits (rule 8) should prevent overflow in most cases. Trimming kicks in when the rendered layout still overflows despite the LLM respecting the counts, e.g. due to long bullet text.
+Outputs land in `data/tailored_outputs/Jeffrey_Ding_CV_{Role}.md` and `.pdf`.
 
 ---
 
 ## Testing
 
-Pytest markers are defined in `pyproject.toml`:
-
-| Mark | File | Needs API key? | Speed |
-|---|---|---|---|
-| *(none)* | `test_resume_diff.py` | No | Fast |
-| *(none)* | `test_job_processor.py` | No | Fast |
-| *(none)* | `test_llm_client_unit.py` | No | Fast |
-| *(none)* | `test_pdf_exporter.py` | No | Fast |
-| `integration` | `test_llm_client.py` | Yes (`GEMINI_API_KEY`) | Slow (~24 s, costs API quota) |
-
 ```bash
 # Unit tests only (no API key, CI-safe)
 pytest -m "not integration"
 
-# Individual modules
-pytest tests/test_resume_diff.py
-pytest tests/test_job_processor.py
-pytest tests/test_llm_client_unit.py
-pytest tests/test_pdf_exporter.py
-
-# Integration tests (real Gemini API calls)
+# Integration tests — 3 real Gemini calls, one per stage
 pytest tests/test_llm_client.py -m integration -s
 
 # Everything
 pytest
 ```
 
-CI runs `ruff check .` and `pytest -m "not integration" --cov` on every push/PR to `main`. Coverage tracks all of `src/` — no modules are excluded.
+| Mark | File | Needs API key? | Speed |
+|---|---|---|---|
+| *(none)* | `test_resume_diff.py` | No | Fast |
+| *(none)* | `test_audit.py` | No | Fast |
+| *(none)* | `test_job_processor.py` | No | Fast |
+| *(none)* | `test_llm_client_unit.py` | No | Fast |
+| *(none)* | `test_main.py` | No | Fast |
+| *(none)* | `test_pdf_exporter.py` | No | Fast |
+| `integration` | `test_llm_client.py` | Yes (`GEMINI_API_KEY`) | Slow, costs API quota |
+
+The integration tests assert on prompt behaviour, not just plumbing: that the audit's scores parse and its projection beats its current score, that the tailor preserves every section and leaks neither placeholders nor the audit report into the resume, and that the fact-check returns a usable verdict.
+
+CI runs `ruff check .` and `pytest -m "not integration" --cov` on every push and PR to `main`.
 
 ---
 
-## Current State
+## Notes and limitations
 
-| Component | Status |
-|---|---|
-| `resume_diff.py` | Complete — bullet parser, differ, revert, interactive report; fully unit-tested including EOF and invalid-input edge cases |
-| `pdf_exporter.py` | Complete — renders ATS-friendly PDF + `get_page_count()` in-memory helper; unit-tested |
-| `llm_client.py` | Complete — tailor + judge + editor(review) + retry logic; unit- and integration-tested |
-| `job_processor.py` | Complete — full pipeline orchestrator with auto-trim-to-one-page loop; unit-tested |
-| `main.py` | Complete — CLI entry point wired to full pipeline |
-| `prompts/tailor_system.txt` | Complete — 8 rules: structure preservation, Technical Skills fidelity, bullet reordering, keyword substitution, factuality, no redundancy, Markdown-only output, explicit one-page hard limits |
-| `prompts/judge_system.txt` | Complete — validates changed bullets against job description |
-| `prompts/editor_system.txt` | Complete — senior-recruiter feedback report |
-| Editor feedback → tailor pipeline integration | Not implemented — `review_resume()` output is a standalone report only |
-| Job scraping (LinkedIn/Indeed) | Not yet implemented |
+- All three agents use `gemini-3.1-flash-lite`. The auditor does the most reasoning and benefits most from a stronger model; change `_AUDITOR_MODEL` in `src/llm_client.py` if you have the quota.
+- A 90%+ score is often genuinely unreachable, and the audit says so rather than fabricating its way there. When it reports `Reachable: No`, the fix is in the master resume — usually real metrics from the Quantification Requests section — not in the tailoring.
+- `restore_dropped_skills` only restores terms within Skills rows the tailor kept. A row deleted outright is left alone, since there is no reliable place to reinsert it.
+- Job scraping (LinkedIn/Indeed) is not implemented.

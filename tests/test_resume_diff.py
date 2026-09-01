@@ -16,8 +16,13 @@ from resume_diff import (
     _token_overlap,
     dedupe_bullets,
     find_changed_bullets,
+    find_changed_lines,
+    find_changes,
+    find_unsupported_skills,
     parse_bullets,
+    parse_content_lines,
     report_and_maybe_revert,
+    restore_dropped_skills,
     revert_violations,
 )
 
@@ -162,6 +167,200 @@ class TestFindChangedBullets:
 
 
 # ---------------------------------------------------------------------------
+# parse_content_lines / find_changed_lines
+# ---------------------------------------------------------------------------
+
+_MASTER_WITH_IDENTITY = (
+    "# Jane Doe\n\n"
+    "**Data Analyst** | jane@example.com\n\n"
+    "## Experience\n\n"
+    "### Data Manager\n\n"
+    "_Acme Corp_ | Feb 2022 - Feb 2024\n\n"
+    "- Built a pipeline in Python\n"
+)
+
+
+class TestParseContentLines:
+    def test_collects_headings_and_metadata_but_not_bullets(self):
+        assert parse_content_lines(_MASTER_WITH_IDENTITY) == [
+            "# Jane Doe",
+            "**Data Analyst** | jane@example.com",
+            "## Experience",
+            "### Data Manager",
+            "_Acme Corp_ | Feb 2022 - Feb 2024",
+        ]
+
+    def test_empty_string(self):
+        assert parse_content_lines("") == []
+
+
+class TestFindChangedLines:
+    def test_identical_documents_have_no_changes(self):
+        assert find_changed_lines(
+            _MASTER_WITH_IDENTITY, _MASTER_WITH_IDENTITY
+        ) == []
+
+    def test_detects_promoted_job_title(self):
+        tailored = _MASTER_WITH_IDENTITY.replace(
+            "### Data Manager", "### Senior Data Scientist"
+        )
+        changes = find_changed_lines(_MASTER_WITH_IDENTITY, tailored)
+        assert len(changes) == 1
+        assert changes[0].tailored == "### Senior Data Scientist"
+        assert changes[0].kind == "line"
+
+    def test_detects_shifted_date_range(self):
+        tailored = _MASTER_WITH_IDENTITY.replace(
+            "Feb 2022 - Feb 2024", "Feb 2020 - Feb 2024"
+        )
+        changes = find_changed_lines(_MASTER_WITH_IDENTITY, tailored)
+        assert [c.tailored for c in changes] == [
+            "_Acme Corp_ | Feb 2020 - Feb 2024"
+        ]
+        assert changes[0].original == "_Acme Corp_ | Feb 2022 - Feb 2024"
+
+    def test_reordering_sections_is_not_a_change(self):
+        reordered = (
+            "# Jane Doe\n\n"
+            "## Experience\n\n"
+            "### Data Manager\n\n"
+            "_Acme Corp_ | Feb 2022 - Feb 2024\n\n"
+            "- Built a pipeline in Python\n\n"
+            "**Data Analyst** | jane@example.com\n"
+        )
+        assert find_changed_lines(_MASTER_WITH_IDENTITY, reordered) == []
+
+    def test_dropping_an_entry_is_not_a_change(self):
+        trimmed = "# Jane Doe\n\n**Data Analyst** | jane@example.com\n"
+        assert find_changed_lines(_MASTER_WITH_IDENTITY, trimmed) == []
+
+    def test_invented_heading_has_no_original(self):
+        tailored = _MASTER_WITH_IDENTITY + "\n### Kubernetes Platform Migration\n"
+        changes = find_changed_lines(_MASTER_WITH_IDENTITY, tailored)
+        assert len(changes) == 1
+        assert changes[0].original == NO_MASTER_MATCH
+
+
+class TestFindChanges:
+    def test_returns_line_changes_before_bullet_changes(self):
+        tailored = _MASTER_WITH_IDENTITY.replace(
+            "### Data Manager", "### Senior Data Scientist"
+        ).replace("Built a pipeline", "Built a Kafka pipeline")
+        kinds = [c.kind for c in find_changes(_MASTER_WITH_IDENTITY, tailored)]
+        assert kinds == ["line", "bullet"]
+
+
+# ---------------------------------------------------------------------------
+# find_unsupported_skills
+# ---------------------------------------------------------------------------
+
+_MASTER_WITH_SKILLS = (
+    "## Technical Skills\n\n"
+    "- **Programming & Databases:** Python, R, PostgreSQL\n"
+    "- **Tools & Frameworks:** AWS, Git\n\n"
+    "## Projects\n\n"
+    "### Retina CNN\n\n"
+    "- Trained a CNN on retina scans using Keras and TensorFlow.\n"
+)
+
+
+def _swap_skills_row(row: str) -> str:
+    return _MASTER_WITH_SKILLS.replace(
+        "- **Programming & Databases:** Python, R, PostgreSQL", row
+    )
+
+
+class TestFindUnsupportedSkills:
+    def test_unchanged_skills_pass(self):
+        assert find_unsupported_skills(
+            _MASTER_WITH_SKILLS, _MASTER_WITH_SKILLS
+        ) == []
+
+    def test_reordering_a_row_is_supported(self):
+        tailored = _swap_skills_row(
+            "- **Programming & Databases:** PostgreSQL, Python, R"
+        )
+        assert find_unsupported_skills(_MASTER_WITH_SKILLS, tailored) == []
+
+    def test_flags_a_term_found_nowhere_in_the_master(self):
+        tailored = _swap_skills_row(
+            "- **Programming & Databases:** SQL, Python, R, PostgreSQL"
+        )
+        violations = find_unsupported_skills(_MASTER_WITH_SKILLS, tailored)
+        assert len(violations) == 1
+        assert "'SQL'" in violations[0]["reason"]
+        assert violations[0]["severity"] == "major"
+        assert violations[0]["supported"] is False
+
+    def test_promoting_a_term_used_in_a_project_is_supported(self):
+        tailored = _swap_skills_row(
+            "- **Programming & Databases:** Python, R, PostgreSQL, Keras"
+        )
+        assert find_unsupported_skills(_MASTER_WITH_SKILLS, tailored) == []
+
+    def test_violation_reverts_the_whole_row(self):
+        tailored = _swap_skills_row(
+            "- **Programming & Databases:** Rust, Python, R, PostgreSQL"
+        )
+        violations = find_unsupported_skills(_MASTER_WITH_SKILLS, tailored)
+        reverted = revert_violations(tailored, violations)
+        assert "Rust" not in reverted
+        assert "**Programming & Databases:** Python, R, PostgreSQL" in reverted
+
+    def test_reports_every_added_term_in_one_violation(self):
+        tailored = _swap_skills_row(
+            "- **Programming & Databases:** Scala, Rust, Python, R, PostgreSQL"
+        )
+        reason = find_unsupported_skills(_MASTER_WITH_SKILLS, tailored)[0]["reason"]
+        assert "'Scala'" in reason and "'Rust'" in reason
+        assert "do not appear" in reason
+
+    def test_dropped_row_is_not_flagged(self):
+        tailored = "## Technical Skills\n\n- **Tools & Frameworks:** AWS, Git\n"
+        assert find_unsupported_skills(_MASTER_WITH_SKILLS, tailored) == []
+
+    def test_resume_without_a_skills_section_is_skipped(self):
+        assert find_unsupported_skills("## Experience\n\n- did work\n", "x") == []
+
+
+class TestRestoreDroppedSkills:
+    def test_unchanged_skills_are_untouched(self):
+        assert restore_dropped_skills(
+            _MASTER_WITH_SKILLS, _MASTER_WITH_SKILLS
+        ) == _MASTER_WITH_SKILLS
+
+    def test_dropped_term_is_appended_to_its_row(self):
+        tailored = _swap_skills_row("- **Programming & Databases:** Python, R")
+        restored = restore_dropped_skills(_MASTER_WITH_SKILLS, tailored)
+        assert "- **Programming & Databases:** Python, R, PostgreSQL" in restored
+
+    def test_tailored_ordering_is_preserved(self):
+        tailored = _swap_skills_row("- **Programming & Databases:** R, Python")
+        restored = restore_dropped_skills(_MASTER_WITH_SKILLS, tailored)
+        assert "- **Programming & Databases:** R, Python, PostgreSQL" in restored
+
+    def test_added_terms_are_left_in_place(self):
+        tailored = _swap_skills_row("- **Programming & Databases:** Python, Rust")
+        restored = restore_dropped_skills(_MASTER_WITH_SKILLS, tailored)
+        assert "- **Programming & Databases:** Python, Rust, R, PostgreSQL" in restored
+
+    def test_deleted_row_is_left_alone(self):
+        tailored = "## Technical Skills\n\n- **Tools & Frameworks:** AWS, Git\n"
+        assert restore_dropped_skills(_MASTER_WITH_SKILLS, tailored) == tailored
+
+    def test_other_sections_are_untouched(self):
+        tailored = _swap_skills_row("- **Programming & Databases:** Python")
+        restored = restore_dropped_skills(_MASTER_WITH_SKILLS, tailored)
+        assert "- Trained a CNN on retina scans using Keras and TensorFlow." in restored
+
+    def test_master_without_skills_section_is_a_noop(self):
+        tailored = "## Technical Skills\n\n- **Languages:** Python\n"
+        assert restore_dropped_skills("## Experience\n\n- did work\n", tailored) == (
+            tailored
+        )
+
+
+# ---------------------------------------------------------------------------
 # revert_violations
 # ---------------------------------------------------------------------------
 
@@ -252,6 +451,26 @@ class TestRevertViolations:
         )
         assert result.count("- shared original") == 2
 
+    def test_reverts_a_heading_without_adding_a_bullet_marker(self):
+        result = revert_violations(
+            "## Experience\n\n### Senior Data Scientist\n\n- kept bullet\n",
+            [{
+                "original": "### Data Manager",
+                "tailored": "### Senior Data Scientist",
+            }],
+        )
+        assert "### Data Manager" in result
+        assert "- ### Data Manager" not in result
+        assert "Senior Data Scientist" not in result
+
+    def test_drops_invented_heading_with_no_master_counterpart(self):
+        result = revert_violations(
+            "## Projects\n\n### Invented Project\n\n- kept bullet\n",
+            [{"original": NO_MASTER_MATCH, "tailored": "### Invented Project"}],
+        )
+        assert "Invented Project" not in result
+        assert "- kept bullet" in result
+
 
 # ---------------------------------------------------------------------------
 # dedupe_bullets
@@ -286,28 +505,32 @@ class TestDedupeBullets:
 
 class TestValidationResultSummary:
     def test_passed(self):
-        summary = ValidationResult(passed=True, violations=[]).summary()
+        summary = ValidationResult(passed=True, violations=[], reviewed=4).summary()
         assert summary.startswith("✓")
-        assert "0 changed bullets" in summary
+        assert "4 changed item(s)" in summary
 
     def test_skipped(self):
         summary = ValidationResult(
-            passed=True, skipped=True, skip_reason="validate=False"
+            passed=True, skipped=True, skip_reason="factcheck=False"
         ).summary()
         assert summary.startswith("⚠")
-        assert "validate=False" in summary
+        assert "factcheck=False" in summary
 
     def test_failed_lists_reasons(self):
         summary = ValidationResult(
             passed=False,
+            reviewed=3,
             violations=[{
                 "reason": "Added SQL",
                 "original": "Python",
-                "tailored": "Python, SQL"
+                "tailored": "Python, SQL",
+                "severity": "major",
             }],
         ).summary()
         assert summary.startswith("✗")
-        assert "Added SQL" in summary
+        assert "1 unsupported edit(s) out of 3 reviewed" in summary
+        assert "(1 major)" in summary
+        assert "[major] Added SQL" in summary
         assert "Python, SQL" in summary
 
     def test_failed_missing_reason_key(self):
@@ -315,6 +538,16 @@ class TestValidationResultSummary:
             passed=False, violations=[{"original": "a", "tailored": "b"}]
         ).summary()
         assert "(no reason given)" in summary
+
+    def test_major_violations_filters_by_severity(self):
+        result = ValidationResult(
+            passed=False,
+            violations=[
+                {"tailored": "a", "severity": "major"},
+                {"tailored": "b", "severity": "minor"},
+            ],
+        )
+        assert [v["tailored"] for v in result.major_violations] == ["a"]
 
 
 # ---------------------------------------------------------------------------
@@ -341,7 +574,7 @@ class TestReportAndMaybeRevert:
         out = report_and_maybe_revert("# Resume\n- bullet\n", result, input_fn=input_fn)
         assert out == "# Resume\n- bullet\n"
         input_fn.assert_not_called()
-        assert "Validation Report" in capsys.readouterr().out
+        assert "Fact-Check Report" in capsys.readouterr().out
 
     def test_skipped_result_returns_unchanged_without_prompting(self):
         result = ValidationResult(passed=False, skipped=True, skip_reason="timeout")
@@ -385,11 +618,38 @@ class TestReportAndMaybeRevert:
         assert "Edit 2 of 2:" in captured
         assert "Reverted 1 edit(s)" in captured
 
+    def test_revert_all_applies_to_remaining_edits(self, capsys):
+        md = "## S\n- bad bullet one\n- bad bullet two\n- bad bullet three\n"
+        violations = [
+            {"original": f"good bullet {n}", "tailored": f"bad bullet {n}",
+             "reason": "r"}
+            for n in ("one", "two", "three")
+        ]
+        result = ValidationResult(passed=False, violations=violations)
+        answers = iter(["n", "a"])
+        out = report_and_maybe_revert(md, result, input_fn=lambda _: next(answers))
+        assert "- bad bullet one" in out
+        assert "- good bullet two" in out
+        assert "- good bullet three" in out
+        assert "Reverting all 2 remaining edit(s)" in capsys.readouterr().out
+
+    def test_quit_keeps_remaining_edits(self, capsys):
+        md = "## S\n- bad bullet one\n- bad bullet two\n"
+        violations = [
+            {"original": f"good bullet {n}", "tailored": f"bad bullet {n}",
+             "reason": "r"}
+            for n in ("one", "two")
+        ]
+        result = ValidationResult(passed=False, violations=violations)
+        out = report_and_maybe_revert(md, result, input_fn=lambda _: "q")
+        assert out == md
+        assert "Keeping all remaining edits" in capsys.readouterr().out
+
     @pytest.mark.parametrize("prompts, expect_revert", [
         (["y"],  True),   # EOF after accepting first → first reverted, second not
         ([],     False),  # EOF on very first prompt → nothing reverted
     ])
-    def test_eof_stops_review(self, prompts, expect_revert):
+    def test_eof_declines_the_revert(self, prompts, expect_revert):
         md = "## S\n- bad bullet one\n- bad bullet two\n"
         violations = [
             {"original": "good bullet one",
@@ -426,7 +686,7 @@ class TestReportAndMaybeRevert:
             input_fn=lambda _: next(answers),
         )
         assert ("- good bullet" in out) == expect_revert
-        assert "Please enter 'y' or 'n'" in capsys.readouterr().out
+        assert "Please enter 'y', 'n', 'a', or 'q'" in capsys.readouterr().out
 
     def test_invalid_input_then_eof_does_not_revert(self, single_violation_result):
         calls = iter(["?"])
