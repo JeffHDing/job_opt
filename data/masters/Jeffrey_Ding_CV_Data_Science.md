@@ -4,10 +4,10 @@
 
 ## Technical Skills
 
-- **Data Analysis & Modeling:** EDA, ETL, Data Visualization, Data Engineering, Data Modelling, Predictive Modeling, Bayesian Inference, Time Series Analysis  
-- **Machine Learning & AI:** Agentic Workflows, Computer Vision, Prompt Engineering, RAG, NLP, HMMs, LLMs, Scikit-learn, TensorFlow, PyTorch, Keras, Hugging Face
-- **Programming & Databases:** Python, R, JavaScript, SQL (PostgreSQL), IBM Db2, NoSQL (MongoDB), Docker 
-- **Tools & Frameworks:** AWS, Excel, Git, CI/CD, Experimental Design, A/B Testing, Causal Inference  
+- **Programming & Databases:** Python, R, JavaScript, SQL (PostgreSQL), IBM Db2, NoSQL (MongoDB)
+- **Data Science & Experimentation:** EDA, Data Visualization, ETL, Data Modelling, Predictive Modeling, Bayesian Inference, Time Series Analysis, Experimental Design, A/B Testing, Causal Inference
+- **Machine Learning & AI:** Scikit-learn, TensorFlow, PyTorch, Keras, Hugging Face, Computer Vision, NLP, HMMs, LLMs, RAG, Prompt Engineering, Agentic Workflows, Langchain
+- **Tools & Infrastructure:** AWS, Docker, Git, CI/CD, MS Office, Cursor, Copilot
 
 ## Education
 
@@ -68,7 +68,7 @@ _University of Toronto_ | Jun 2024 - Jul 2025
 
 ### Resume Optimizer
 
-- Developed an end-to-end NLP pipeline with a multi-agent prompt system with guardrails that automatically tailors a master resume to a target job description using a three-stage LLM architecture. Designed three agent personas (ATS auditor, tailor, and fact-checker) that score keyword coverage against a 100-point rubric, execute the audit's directives, and reject claims unsupported by the master resume.
+- Developed a multi-agent prompt system with guardrails that automatically tailors a master resume to a target job description using LLM API calls.
 
 - Implemented a custom Jaccard-similarity token-overlap algorithm to diff bullet-level changes between master and tailored resumes for targeted validation, and a WeasyPrint rendering pipeline to export ATS-optimized single-page PDFs.
 

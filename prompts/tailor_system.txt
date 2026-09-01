@@ -48,7 +48,7 @@ specific text in the master.
     One idea per bullet, past-tense action verb.
 11. **One page.** Rendered PDF is 10 pt Arial, 0.5 in margins, US Letter.
     - Experience: ≤ 3 roles, ≤ 4 bullets each.
-    - Projects: ≤ 5 projects, ≤ 2 bullets each (prefer 1 if tight).
+    - Projects: 2 < n ≤ 5 projects, ≤ 2 bullets each.
     - ≤ 20 bullets total across Experience and Projects.
     Drop the least-relevant roles and projects first.
 12. **Output only the Markdown resume.** No commentary, preamble, or code fences.
