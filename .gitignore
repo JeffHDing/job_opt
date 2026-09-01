@@ -14,4 +14,4 @@ __pycache__/
 .DS_Store
 
 # Resumes, job descriptions, and everything main.py generates from them
-data/
+data/*
