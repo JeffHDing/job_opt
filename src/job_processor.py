@@ -20,7 +20,7 @@ from resume_diff import (
 )
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
-_DEFAULT_RESUME = _PROJECT_ROOT / "data/masters/Jeffrey_Ding_CV_Data_Science.md"
+_DEFAULT_RESUME = _PROJECT_ROOT / "data/masters/Jeffrey_Ding_CV.md"
 _OUTPUT_DIR = _PROJECT_ROOT / "data/tailored_outputs"
 _AUDIT_DIR = _PROJECT_ROOT / "data/audit_reports"
 
