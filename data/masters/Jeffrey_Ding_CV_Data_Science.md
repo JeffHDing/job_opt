@@ -39,6 +39,7 @@ _University Health Network (UHN)_ | May 2019 - Aug 2019
 _University of Toronto_ | Jun 2024 - Jul 2025
 
 - Partnered with researchers as a clinical research coordinator consultant.
+- Advised on participant recruitment strategies by providing communication recommendations to improve trial enrollment by 10%.
 - Applied learned machine learning and deep learning concepts towards developing independent data science projects.
 
 ## Projects
