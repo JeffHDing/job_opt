@@ -22,8 +22,8 @@ _Sunnybrook Research Institute_ | Feb 2022 - Feb 2024
 
 - Abstracted unstructured data from 250+ patients to evaluate outcomes and causally infer treatment efficacy.
 - Increased trial participation by an estimated 40% by aggregating and screening new patient data.
-- Managed the simultaneous conduct of 15+ clinical trials by coordinating cross-functional teams.
-- Accelerated the activation of 10+ new trials through financial and legal submissions.
+- Managed the simultaneous conduct of 15+ clinical trials in a high-growth environment by coordinating cross-functional teams.
+- Accelerated the activation of 10+ new trials through financial and legal submissions, reducing startup time by 30%.
 - Liaised with stakeholders and client representatives by facilitating on-site/remote visits and reconciling 200+ queries.
 
 ### Summer Undergraduate Researcher
