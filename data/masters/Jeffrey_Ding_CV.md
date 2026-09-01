@@ -1,6 +1,6 @@
 # Jeffrey Ding
 
-**Data Scientist** | 647-928-5709 | [<u>Email</u>](mailto:jeffreyhding@gmail.com) | [<u>LinkedIn</u>](https://www.linkedin.com/in/jeffhding/) | [<u>GitHub</u>](https://www.github.com/JeffHDing)
+**[Role]** | +1 647-928-5709 | [<u>Email</u>](mailto:jeffreyhding@gmail.com) | [<u>LinkedIn</u>](https://www.linkedin.com/in/jeffhding/) | [<u>GitHub</u>](https://www.github.com/JeffHDing)
 
 ## Technical Skills
 
@@ -69,6 +69,7 @@ _University of Toronto_ | Jun 2024 - Jul 2025
 ### Resume Optimizer
 
 - Developed a multi-agent prompt system with guardrails that automatically tailors a master resume to a target job description using LLM API calls.
+- Designed three agent personas (ATS auditor, tailor, and fact-checker) that score keyword coverage against a 100-point rubric, execute the audit's directives, and reject claims unsupported by the master resume.
 
 - Implemented a custom Jaccard-similarity token-overlap algorithm to diff bullet-level changes between master and tailored resumes for targeted validation, and a WeasyPrint rendering pipeline to export ATS-optimized single-page PDFs.
 
