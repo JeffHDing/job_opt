@@ -94,13 +94,13 @@ def _with_retry(fn: Callable[[], Any]) -> Any:
 # ---------------------------------------------------------------------------
 # Model config
 # ---------------------------------------------------------------------------
-# gemini-3.1-flash-lite: 500 RPD on free tier. A full audit + tailor +
+# gemini-3.5-flash-lite: 500 RPD on free tier. A full audit + tailor +
 # fact-check run costs 3 requests → ~165 applications/day. Skipping the audit
 # (--no-audit) or the fact-check (--no-factcheck) drops that to 2.
 
-_AUDITOR_MODEL   = "gemini-3.1-flash-lite"
-_TAILOR_MODEL    = "gemini-3.1-flash-lite"
-_FACTCHECK_MODEL = "gemini-3.1-flash-lite"
+_AUDITOR_MODEL   = "gemini-3.5-flash-lite"
+_TAILOR_MODEL    = "gemini-3.5-flash-lite"
+_FACTCHECK_MODEL = "gemini-3.5-flash-lite"
 
 _AUDITOR_SYSTEM_PROMPT   = (_PROMPTS_DIR / "auditor_system.txt").read_text()
 _TAILOR_SYSTEM_PROMPT    = (_PROMPTS_DIR / "tailor_system.txt").read_text()

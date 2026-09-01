@@ -41,7 +41,7 @@ Model judgement handles the parts that need reading comprehension. Everything me
 |---|---|---|
 | Identity content is verbatim | Non-bullet lines — headings, employers, dates, contact details — are diffed against the master and flagged if they appear nowhere in it | `resume_diff.find_changed_lines` |
 | No invented skills | Every term added to a Technical Skills row must appear in the master as a whole word; violations are raised at `major` severity even when the model approved the edit | `resume_diff.find_unsupported_skills` |
-| No dropped keywords | Terms the tailor removed from a Skills row are appended back, preserving the tailor's ordering | `resume_diff.restore_dropped_skills` |
+| No dropped or duplicated skills | Each Skills row is normalised to hold exactly the terms the master files under it: dropped terms are appended back, terms the master files elsewhere are removed, and repeats are collapsed. Row membership is the master's, ordering is the tailor's | `resume_diff.normalize_skill_rows` |
 | No leftover placeholders | The tailored output is scanned for `[X]`-style brackets, ignoring Markdown links | `audit.find_placeholders` |
 | No duplicate bullets | Repeats within a section are stripped | `resume_diff.dedupe_bullets` |
 | Job title matches the posting | Stamped into the header after the fact-check, so a tailor edit to that line is still caught | `job_processor._set_header_role` |
@@ -227,5 +227,5 @@ CI runs `ruff check .` and `pytest -m "not integration" --cov` on every push and
 
 - All three agents use `gemini-3.1-flash-lite`. The auditor does the most reasoning and benefits most from a stronger model; change `_AUDITOR_MODEL` in `src/llm_client.py` if you have the quota.
 - A 90%+ score is often genuinely unreachable, and the audit says so rather than fabricating its way there. When it reports `Reachable: No`, the fix is in the master resume — usually real metrics from the Quantification Requests section — not in the tailoring.
-- `restore_dropped_skills` only restores terms within Skills rows the tailor kept. A row deleted outright is left alone, since there is no reliable place to reinsert it.
+- `normalize_skill_rows` only operates on Skills rows the tailor kept. A row deleted outright is left alone, since there is no reliable place to reinsert it.
 - Job scraping (LinkedIn/Indeed) is not implemented.

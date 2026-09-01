@@ -19,10 +19,10 @@ from resume_diff import (
     find_changed_lines,
     find_changes,
     find_unsupported_skills,
+    normalize_skill_rows,
     parse_bullets,
     parse_content_lines,
     report_and_maybe_revert,
-    restore_dropped_skills,
     revert_violations,
 )
 
@@ -323,39 +323,100 @@ class TestFindUnsupportedSkills:
         assert find_unsupported_skills("## Experience\n\n- did work\n", "x") == []
 
 
-class TestRestoreDroppedSkills:
+class TestNormalizeSkillRows:
     def test_unchanged_skills_are_untouched(self):
-        assert restore_dropped_skills(
+        assert normalize_skill_rows(
             _MASTER_WITH_SKILLS, _MASTER_WITH_SKILLS
         ) == _MASTER_WITH_SKILLS
 
     def test_dropped_term_is_appended_to_its_row(self):
         tailored = _swap_skills_row("- **Programming & Databases:** Python, R")
-        restored = restore_dropped_skills(_MASTER_WITH_SKILLS, tailored)
-        assert "- **Programming & Databases:** Python, R, PostgreSQL" in restored
+        result = normalize_skill_rows(_MASTER_WITH_SKILLS, tailored)
+        assert "- **Programming & Databases:** Python, R, PostgreSQL" in result
 
     def test_tailored_ordering_is_preserved(self):
-        tailored = _swap_skills_row("- **Programming & Databases:** R, Python")
-        restored = restore_dropped_skills(_MASTER_WITH_SKILLS, tailored)
-        assert "- **Programming & Databases:** R, Python, PostgreSQL" in restored
+        tailored = _swap_skills_row("- **Programming & Databases:** PostgreSQL, R")
+        result = normalize_skill_rows(_MASTER_WITH_SKILLS, tailored)
+        assert "- **Programming & Databases:** PostgreSQL, R, Python" in result
 
     def test_added_terms_are_left_in_place(self):
         tailored = _swap_skills_row("- **Programming & Databases:** Python, Rust")
-        restored = restore_dropped_skills(_MASTER_WITH_SKILLS, tailored)
-        assert "- **Programming & Databases:** Python, Rust, R, PostgreSQL" in restored
+        result = normalize_skill_rows(_MASTER_WITH_SKILLS, tailored)
+        assert "- **Programming & Databases:** Python, Rust, R, PostgreSQL" in result
+
+    def test_term_copied_into_a_second_row_is_removed_from_it(self):
+        tailored = _MASTER_WITH_SKILLS.replace(
+            "- **Tools & Frameworks:** AWS, Git",
+            "- **Tools & Frameworks:** Python, AWS, Git",
+        )
+        result = normalize_skill_rows(_MASTER_WITH_SKILLS, tailored)
+        assert "- **Tools & Frameworks:** AWS, Git" in result
+        assert "- **Programming & Databases:** Python, R, PostgreSQL" in result
+
+    def test_moved_term_goes_home_without_leaving_a_duplicate(self):
+        """The move that restoration alone would have turned into a duplicate."""
+        tailored = _swap_skills_row(
+            "- **Programming & Databases:** Python, R, PostgreSQL, Git"
+        ).replace("- **Tools & Frameworks:** AWS, Git", "- **Tools & Frameworks:** AWS")
+        result = normalize_skill_rows(_MASTER_WITH_SKILLS, tailored)
+        assert result.count("Git") == 1
+        assert "- **Tools & Frameworks:** AWS, Git" in result
+
+    def test_term_repeated_within_a_row_is_collapsed(self):
+        tailored = _swap_skills_row(
+            "- **Programming & Databases:** Python, R, Python, PostgreSQL"
+        )
+        result = normalize_skill_rows(_MASTER_WITH_SKILLS, tailored)
+        assert "- **Programming & Databases:** Python, R, PostgreSQL" in result
 
     def test_deleted_row_is_left_alone(self):
         tailored = "## Technical Skills\n\n- **Tools & Frameworks:** AWS, Git\n"
-        assert restore_dropped_skills(_MASTER_WITH_SKILLS, tailored) == tailored
+        assert normalize_skill_rows(_MASTER_WITH_SKILLS, tailored) == tailored
 
     def test_other_sections_are_untouched(self):
         tailored = _swap_skills_row("- **Programming & Databases:** Python")
-        restored = restore_dropped_skills(_MASTER_WITH_SKILLS, tailored)
-        assert "- Trained a CNN on retina scans using Keras and TensorFlow." in restored
+        result = normalize_skill_rows(_MASTER_WITH_SKILLS, tailored)
+        assert "- Trained a CNN on retina scans using Keras and TensorFlow." in result
+
+    def test_alias_split_into_another_row_is_removed(self):
+        """The master's "SQL (PostgreSQL)" must not also appear as a bare "SQL"."""
+        master = (
+            "## Technical Skills\n\n"
+            "- **Analysis:** EDA, ETL\n"
+            "- **Databases:** Python, SQL (PostgreSQL)\n"
+        )
+        tailored = (
+            "## Technical Skills\n\n"
+            "- **Analysis:** SQL, EDA, ETL\n"
+            "- **Databases:** Python, SQL (PostgreSQL)\n"
+        )
+        result = normalize_skill_rows(master, tailored)
+        assert "- **Analysis:** EDA, ETL" in result
+        assert "- **Databases:** Python, SQL (PostgreSQL)" in result
+
+    def test_alias_half_is_rewritten_to_the_masters_spelling(self):
+        master = "## Technical Skills\n\n- **Databases:** Python, SQL (PostgreSQL)\n"
+        tailored = "## Technical Skills\n\n- **Databases:** SQL, Python\n"
+        result = normalize_skill_rows(master, tailored)
+        assert "- **Databases:** SQL (PostgreSQL), Python" in result
+
+    def test_alias_and_its_half_in_one_row_collapse_to_one_skill(self):
+        master = "## Technical Skills\n\n- **Databases:** Python, SQL (PostgreSQL)\n"
+        tailored = (
+            "## Technical Skills\n\n"
+            "- **Databases:** SQL, Python, SQL (PostgreSQL), PostgreSQL\n"
+        )
+        result = normalize_skill_rows(master, tailored)
+        assert "- **Databases:** SQL (PostgreSQL), Python" in result
+
+    def test_handles_rows_written_with_the_colon_outside_the_bold(self):
+        master = "## Technical Skills\n\n- **Languages**: Python, R\n"
+        tailored = "## Technical Skills\n\n- **Languages**: R\n"
+        assert "- **Languages**: R, Python" in normalize_skill_rows(master, tailored)
 
     def test_master_without_skills_section_is_a_noop(self):
         tailored = "## Technical Skills\n\n- **Languages:** Python\n"
-        assert restore_dropped_skills("## Experience\n\n- did work\n", tailored) == (
+        assert normalize_skill_rows("## Experience\n\n- did work\n", tailored) == (
             tailored
         )
 

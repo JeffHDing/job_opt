@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Callable, Iterable, Iterator
+from typing import Callable, Iterable, Iterator, NamedTuple
 
 # ---------------------------------------------------------------------------
 # Data types
@@ -260,13 +260,38 @@ _SKILLS_SECTION = "technical skills"
 _SKILL_ROW_RE = re.compile(r"^\*\*(?P<category>[^*]+?):?\*\*:?\s*(?P<terms>.+)$")
 
 
-def _skill_rows(md: str) -> dict[str, tuple[str, list[str]]]:
+# A skill written as "SQL (PostgreSQL)" is three strings an ATS can match and
+# three ways for the tailor to list the same skill twice.
+_ALIASED_TERM_RE = re.compile(r"^(?P<head>[^(]+?)\s*\((?P<inner>[^)]+)\)$")
+
+
+class _SkillRow(NamedTuple):
+    text: str     # the bullet as written, e.g. "**Languages:** Python, R"
+    prefix: str   # everything up to the first term, e.g. "**Languages:** "
+    terms: list[str]
+
+
+def _term_components(term: str) -> list[str]:
     """
-    Parse the Technical Skills section into {category: (row_text, [term, ...])}.
+    The ways a skill can be written: itself, plus either half of an alias.
+
+    "SQL (PostgreSQL)" yields "SQL (PostgreSQL)", "SQL", and "PostgreSQL", so
+    that a tailored row listing any one of them is recognised as naming the
+    same skill.
+    """
+    match = _ALIASED_TERM_RE.match(term)
+    if not match:
+        return [term]
+    return [term, match.group("head"), match.group("inner")]
+
+
+def _skill_rows(md: str) -> dict[str, _SkillRow]:
+    """
+    Parse the Technical Skills section into {category: _SkillRow}.
 
     Rows look like "**Programming & Databases:** Python, R, PostgreSQL".
     """
-    rows: dict[str, tuple[str, list[str]]] = {}
+    rows: dict[str, _SkillRow] = {}
     for section, bullets in parse_bullets(md).items():
         if section.strip().lower() != _SKILLS_SECTION:
             continue
@@ -275,7 +300,11 @@ def _skill_rows(md: str) -> dict[str, tuple[str, list[str]]]:
             if not match:
                 continue
             terms = [t.strip() for t in match.group("terms").split(",") if t.strip()]
-            rows[match.group("category").strip()] = (bullet, terms)
+            rows[match.group("category").strip()] = _SkillRow(
+                text=bullet,
+                prefix=bullet[:match.start("terms")],
+                terms=terms,
+            )
     return rows
 
 
@@ -312,21 +341,20 @@ def find_unsupported_skills(master_md: str, tailored_md: str) -> list[dict]:
 
     violations: list[dict] = []
 
-    for category, (tailored_row, tailored_terms) in _skill_rows(tailored_md).items():
-        master_entry = master_rows.get(category)
-        if master_entry is None:
+    for category, row in _skill_rows(tailored_md).items():
+        master_row = master_rows.get(category)
+        if master_row is None:
             continue
-        master_row, master_terms = master_entry
 
-        known = {t.lower() for t in master_terms}
+        known = {t.lower() for t in master_row.terms}
         added = [
-            term for term in tailored_terms
+            term for term in row.terms
             if term.lower() not in known and not _mentions(term, master_md)
         ]
         if added:
             violations.append({
-                "original": master_row,
-                "tailored": tailored_row,
+                "original": master_row.text,
+                "tailored": row.text,
                 "supported": False,
                 "severity": "major",
                 "reason": (
@@ -426,31 +454,67 @@ def dedupe_bullets(md: str) -> str:
 # Interactive review
 # ---------------------------------------------------------------------------
 
-def restore_dropped_skills(master_md: str, tailored_md: str) -> str:
+def normalize_skill_rows(master_md: str, tailored_md: str) -> str:
     """
-    Put back any Technical Skills term the tailored resume quietly dropped.
+    Make each Technical Skills row list exactly the skills the master puts in it.
 
-    The tailor is told to keep every skill and reorder freely, so restored terms
-    are appended to the end of their row: the model's prioritisation survives
-    and the keywords it discarded come back. Every dropped term is a keyword an
-    ATS can no longer match, and losing them is pure downside.
+    Row membership and spelling are the master's; ordering within a row is the
+    tailor's. Four things are corrected, in this order:
 
-    Terms are restored within rows the tailored resume still has. A row deleted
-    outright is left alone, since there is no reliable place to put it back.
+      * A term the master files under a different row is removed. The tailor is
+        told each skill stays in the row it came from, but it will happily copy
+        a term into a second row to echo the job description.
+      * A term is rewritten to the master's spelling of it, so that pulling the
+        "SQL" out of the master's "SQL (PostgreSQL)" reads as the same skill
+        rather than a second one. No keywords are lost, since the master's form
+        contains the alias.
+      * A skill named twice in a row, under any of its spellings, is collapsed
+        to its first occurrence.
+      * A term the master lists in this row but the tailor dropped is appended.
+
+    Removal has to happen alongside restoration rather than on its own: putting
+    a moved term back in its home row while leaving the copy in place is what
+    turns a move into a duplicate. Genuinely new terms — ones the master names
+    nowhere — are left where the tailor put them, since the fact-check reviews
+    those separately.
+
+    Rows the tailored resume deleted outright are left alone; there is no
+    reliable place to reinsert them.
     """
     master_rows = _skill_rows(master_md)
     if not master_rows:
         return tailored_md
 
+    # Every spelling of every master skill → (owning row, the master's spelling).
+    # Built in row order, so an alias shared by two skills belongs to the first.
+    canonical: dict[str, tuple[str, str]] = {}
+    for category, master_row in master_rows.items():
+        for term in master_row.terms:
+            for component in _term_components(term):
+                canonical.setdefault(component.lower(), (category, term))
+
     rewrites: dict[str, str] = {}
-    for category, (row_text, terms) in _skill_rows(tailored_md).items():
-        master_entry = master_rows.get(category)
-        if master_entry is None:
+    for category, row in _skill_rows(tailored_md).items():
+        master_row = master_rows.get(category)
+        if master_row is None:
             continue
-        present = {t.lower() for t in terms}
-        missing = [t for t in master_entry[1] if t.lower() not in present]
-        if missing:
-            rewrites[row_text] = f"{row_text}, {', '.join(missing)}"
+
+        kept: list[str] = []
+        seen: set[str] = set()
+        for term in row.terms:
+            owner, spelling = canonical.get(term.lower(), (category, term))
+            if owner != category:
+                continue
+            if spelling.lower() in seen:
+                continue
+            seen.add(spelling.lower())
+            kept.append(spelling)
+
+        kept += [t for t in master_row.terms if t.lower() not in seen]
+
+        rebuilt = f"{row.prefix}{', '.join(kept)}"
+        if rebuilt != row.text:
+            rewrites[row.text] = rebuilt
 
     if not rewrites:
         return tailored_md

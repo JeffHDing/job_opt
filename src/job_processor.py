@@ -15,8 +15,8 @@ from llm_client import audit_resume, fact_check, tailor_resume
 from pdf_exporter import generate_resume_pdf, get_page_count
 from resume_diff import (
     dedupe_bullets,
+    normalize_skill_rows,
     report_and_maybe_revert,
-    restore_dropped_skills,
 )
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -286,7 +286,7 @@ def process_application(
     # 4. Post-process: stamp the job title, put back dropped keywords, drop
     #    repeats, fit one page
     tailored_md = _set_header_role(tailored_md, role)
-    tailored_md = restore_dropped_skills(master_md, tailored_md)
+    tailored_md = normalize_skill_rows(master_md, tailored_md)
     tailored_md = dedupe_bullets(tailored_md)
     tailored_md = _ensure_one_page(tailored_md)
 
