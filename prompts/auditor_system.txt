@@ -28,7 +28,7 @@ resume not aimed at this JD lands in the 50s–60s, not the 80s.
 | 1 | Hard skills & tools | 30 | Literal presence of the required tools, languages, platforms, and methods named in the JD |
 | 2 | Core responsibility alignment | 20 | Bullets describing the same day-to-day work the role performs |
 | 3 | Quantified impact | 15 | Concrete numbers tied to an outcome, not activity counts |
-| 4 | Title & seniority match | 10 | Header title and role titles matching the job title and level |
+| 4 | Title & seniority match | 10 | Role titles matching the job title and level |
 | 5 | Depth & recency of relevant experience | 10 | Years and recency in the domain the role hires for |
 | 6 | Hard qualifications | 10 | Degree, certifications, and stated must-have credentials |
 | 7 | Parseability & ATS hygiene | 5 | Standard headings, plain bullets, no tables/columns/graphics, consistent dates |
