@@ -2,8 +2,8 @@
 job_processor.py — orchestrates the audit → tailor → fact-check pipeline.
 
 Everything the LLM does not do lives here: reading the master, persisting the
-audit report, stamping the header role, deduping, trimming to one page, and
-exporting the PDF.
+audit report, stamping the header role, deduping, trimming to the page limit,
+and exporting the PDF.
 """
 import re
 from dataclasses import dataclass
@@ -11,7 +11,7 @@ from datetime import date
 from pathlib import Path
 
 from audit import AuditReport, find_placeholders
-from llm_client import audit_resume, fact_check, tailor_resume
+from llm_client import _DEFAULT_MAX_PAGES, audit_resume, fact_check, tailor_resume
 from pdf_exporter import generate_resume_pdf, get_page_count
 from resume_diff import (
     dedupe_bullets,
@@ -24,7 +24,7 @@ _DEFAULT_RESUME = _PROJECT_ROOT / "data/masters/Jeffrey_Ding_CV.md"
 _OUTPUT_DIR = _PROJECT_ROOT / "data/tailored_outputs"
 _AUDIT_DIR = _PROJECT_ROOT / "data/audit_reports"
 
-_MAX_TRIM_PASSES = 8
+_MAX_TRIM_PASSES = 16
 
 
 @dataclass
@@ -143,11 +143,14 @@ def _trim_one_bullet(markdown_text: str) -> str | None:
 
 def _set_header_role(markdown_text: str, role: str) -> str:
     """
-    Replace the bolded role title in the resume header (the line containing
-    the phone/email contact info) with *role* from the job description.
+    Replace the bolded role title in the resume header with *role* from the
+    job description.
 
-    The header line looks like:
+    Two header shapes are recognised, matching both the one-line contact
+    block and the academic CV (name / title / contact on separate lines):
+
         **Data Scientist** | 647-... | ...
+        **Data Scientist**
 
     The tailor is told to leave this line alone so that any change it makes is
     caught by the fact-check; stamping it here instead keeps the title matching
@@ -155,39 +158,64 @@ def _set_header_role(markdown_text: str, role: str) -> str:
     """
     display_role = role.replace("_", " ")
 
-    def _replace(m: re.Match) -> str:
+    def _replace_piped(m: re.Match) -> str:
         return f"**{display_role}**{m.group(1)}"
 
-    # Match **<anything>** followed by a pipe separator on the same line
-    return re.sub(r'\*\*[^*]+\*\*(\s*\|)', _replace, markdown_text, count=1)
+    updated = re.sub(
+        r'\*\*[^*]+\*\*(\s*\|)', _replace_piped, markdown_text, count=1
+    )
+    if updated != markdown_text:
+        return updated
+
+    def _replace_subtitle(m: re.Match) -> str:
+        return f"{m.group(1)}**{display_role}**{m.group(2)}"
+
+    return re.sub(
+        r'^(# [^\n]+\n+)\*\*[^*]+\*\*([ \t]*)$',
+        _replace_subtitle,
+        markdown_text,
+        count=1,
+        flags=re.MULTILINE,
+    )
 
 
-def _ensure_one_page(markdown_text: str) -> str:
+def _ensure_page_limit(markdown_text: str, max_pages: int) -> str:
     """
     Iteratively trim bullets from the tailored markdown until the rendered
-    PDF fits on exactly one page, up to _MAX_TRIM_PASSES attempts.
+    PDF fits in *max_pages*, up to _MAX_TRIM_PASSES attempts.
     """
+    page_word = "page" if max_pages == 1 else "pages"
     for pass_num in range(1, _MAX_TRIM_PASSES + 1):
         pages = get_page_count(markdown_text)
-        if pages <= 1:
+        if pages <= max_pages:
             if pass_num > 1:
-                print(f"  Trimmed to 1 page after {pass_num - 1} pass(es).")
+                fitted = "page" if pages == 1 else "pages"
+                print(
+                    f"  Trimmed to {pages} {fitted} after "
+                    f"{pass_num - 1} pass(es)."
+                )
             return markdown_text
 
         print(
-            f"  Page overflow ({pages} pages) — trimming pass"
-            f" {pass_num}/{_MAX_TRIM_PASSES}...",
+            f"  Page overflow ({pages} pages, limit {max_pages}) — trimming "
+            f"pass {pass_num}/{_MAX_TRIM_PASSES}...",
             flush=True,
         )
         trimmed = _trim_one_bullet(markdown_text)
         if trimmed is None:
-            print("  Warning: could not trim further; PDF may exceed one page.")
+            print(
+                f"  Warning: could not trim further; PDF may exceed "
+                f"{max_pages} {page_word}."
+            )
             return markdown_text
         markdown_text = trimmed
 
     pages = get_page_count(markdown_text)
-    if pages > 1:
-        print(f"  Warning: still {pages} pages after {_MAX_TRIM_PASSES} trim passes.")
+    if pages > max_pages:
+        print(
+            f"  Warning: still {pages} pages after {_MAX_TRIM_PASSES} trim "
+            f"passes (limit {max_pages})."
+        )
     return markdown_text
 
 
@@ -243,9 +271,10 @@ def process_application(
     audit: bool = True,
     factcheck: bool = True,
     export_pdf: bool = True,
+    max_pages: int = _DEFAULT_MAX_PAGES,
 ) -> ApplicationResult:
     """
-    Full pipeline: audit → tailor → fact-check → trim to one page → export PDF.
+    Full pipeline: audit → tailor → fact-check → trim to *max_pages* → export PDF.
 
     Raises FileNotFoundError if resume_path doesn't exist — callers (e.g.
     main.py) are responsible for turning that into a user-facing CLI error.
@@ -267,7 +296,9 @@ def process_application(
         else ""
     )
     print(f"Stage 2/3 — tailoring resume{directive_note}...", flush=True)
-    tailored_md = tailor_resume(master_md, job_description, audit=result.audit)
+    tailored_md = tailor_resume(
+        master_md, job_description, audit=result.audit, max_pages=max_pages
+    )
 
     # 3. Fact-check, then let the user revert anything flagged
     if factcheck:
@@ -284,11 +315,11 @@ def process_application(
         )
 
     # 4. Post-process: stamp the job title, put back dropped keywords, drop
-    #    repeats, fit one page
+    #    repeats, fit the page limit
     tailored_md = _set_header_role(tailored_md, role)
     tailored_md = normalize_skill_rows(master_md, tailored_md)
     tailored_md = dedupe_bullets(tailored_md)
-    tailored_md = _ensure_one_page(tailored_md)
+    tailored_md = _ensure_page_limit(tailored_md, max_pages)
 
     # 5. Write outputs
     stem = f"Jeffrey_Ding_CV_{_slug(role)}"

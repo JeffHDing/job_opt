@@ -106,6 +106,23 @@ _AUDITOR_SYSTEM_PROMPT   = (_PROMPTS_DIR / "auditor_system.txt").read_text()
 _TAILOR_SYSTEM_PROMPT    = (_PROMPTS_DIR / "tailor_system.txt").read_text()
 _FACTCHECK_SYSTEM_PROMPT = (_PROMPTS_DIR / "factcheck_system.txt").read_text()
 
+_DEFAULT_MAX_PAGES = 2
+
+
+def _tailor_page_budget(max_pages: int) -> dict[str, int]:
+    """Scale the tailor's content caps with the requested page limit."""
+    return {
+        "max_pages": max_pages,
+        "max_exp_roles": 2 + max_pages,
+        "max_exp_bullets": 3 + max_pages,
+        "max_projects": 5 * max_pages,
+        "max_bullets": 20 * max_pages,
+    }
+
+
+def _tailor_system_prompt(max_pages: int) -> str:
+    return _TAILOR_SYSTEM_PROMPT.format(**_tailor_page_budget(max_pages))
+
 
 def _resume_and_jd(master_resume_md: str, job_description: str) -> str:
     return (
@@ -158,12 +175,15 @@ def tailor_resume(
     master_resume_md: str,
     job_description: str,
     audit: AuditReport | None = None,
+    max_pages: int = _DEFAULT_MAX_PAGES,
 ) -> str:
     """
     Rewrite the master resume for the job description and return the Markdown.
 
     When *audit* carries a usable report it is appended to the prompt, and the
     tailor works from its directives instead of inferring priorities on its own.
+    *max_pages* is injected into the system prompt so the rewrite targets the
+    same page budget the PDF trimmer will enforce.
     """
     user_message = _resume_and_jd(master_resume_md, job_description)
 
@@ -173,7 +193,7 @@ def tailor_resume(
     response = _with_retry(lambda: _get_client().models.generate_content(
         model=_TAILOR_MODEL,
         config=types.GenerateContentConfig(
-            system_instruction=_TAILOR_SYSTEM_PROMPT,
+            system_instruction=_tailor_system_prompt(max_pages),
             temperature=0.3,
             max_output_tokens=8192,
         ),

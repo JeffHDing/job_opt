@@ -17,6 +17,8 @@ import llm_client  # noqa: E402
 from audit import AuditReport  # noqa: E402
 from llm_client import (  # noqa: E402
     _get_client,
+    _tailor_page_budget,
+    _tailor_system_prompt,
     _with_retry,
     audit_resume,
     fact_check,
@@ -218,7 +220,44 @@ class TestTailorResume:
             tailor_resume(_MASTER, "jd")
         kwargs = client.models.generate_content.call_args.kwargs
         assert kwargs["model"] == llm_client._TAILOR_MODEL
-        assert kwargs["config"].system_instruction == llm_client._TAILOR_SYSTEM_PROMPT
+        instruction = kwargs["config"].system_instruction
+        assert "12 pt Times New Roman" in instruction
+        assert "2-page limit" in instruction
+
+    def test_page_limit_is_injected_into_the_prompt(self):
+        client, patcher = _patch_client("# Tailored")
+        with patcher:
+            tailor_resume(_MASTER, "jd", max_pages=1)
+        instruction = (
+            client.models.generate_content.call_args.kwargs["config"].system_instruction
+        )
+        assert "1-page limit" in instruction
+        assert "≤ 3 roles" in instruction
+        assert "≤ 20 bullets" in instruction
+
+
+class TestTailorPageBudget:
+    def test_one_page_matches_the_original_caps(self):
+        assert _tailor_page_budget(1) == {
+            "max_pages": 1,
+            "max_exp_roles": 3,
+            "max_exp_bullets": 4,
+            "max_projects": 5,
+            "max_bullets": 20,
+        }
+
+    def test_two_pages_scales_the_caps(self):
+        budget = _tailor_page_budget(2)
+        assert budget["max_exp_roles"] == 4
+        assert budget["max_exp_bullets"] == 5
+        assert budget["max_projects"] == 10
+        assert budget["max_bullets"] == 40
+
+    def test_formatted_prompt_has_no_leftover_placeholders(self):
+        prompt = _tailor_system_prompt(2)
+        assert "{" not in prompt
+        assert "2-page limit" in prompt
+        assert "12 pt Times New Roman" in prompt
 
     def test_audit_report_is_appended_to_the_prompt(self):
         client, patcher = _patch_client("# Tailored")

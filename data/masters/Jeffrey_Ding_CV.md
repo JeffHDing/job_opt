@@ -1,6 +1,8 @@
 # Jeffrey Ding
 
-**[Role]** | (+1) 647-928-5709 | [<u>Email</u>](mailto:jeffreyhding@gmail.com) | [<u>LinkedIn</u>](https://www.linkedin.com/in/jeffhding/) | [<u>GitHub</u>](https://www.github.com/JeffHDing)
+**Data Scientist**
+
+(+1) 647-928-5709 | [jeffreyhding@gmail.com](mailto:jeffreyhding@gmail.com) | [LinkedIn](https://www.linkedin.com/in/jeffhding/) | [GitHub](https://www.github.com/JeffHDing)
 
 ## Technical Skills
 
@@ -11,14 +13,19 @@
 
 ## Education
 
-**Master of Data Science** | _University of British Columbia_ | Sep 2025 - Jun 2026  
-**Honours Bachelor of Medical Sciences** | _University of Western Ontario_ | 2017 - 2021  
+### Master of Data Science
+
+_University of British Columbia_ | Vancouver, BC | GPA: 3.7/4.0 | Sep 2025 - Jun 2026
+
+### Honours Bachelor of Medical Sciences
+
+_University of Western Ontario_ | London, ON | GPA: 3.7/4.0 | 2017 - 2021
 
 ## Experience
 
 ### Data Manager
 
-_Sunnybrook Research Institute_ | Feb 2022 - Feb 2024
+_Sunnybrook Research Institute_ | Toronto, ON | Feb 2022 - Feb 2024
 
 - Abstracted unstructured data from 250+ patients to evaluate outcomes and causally infer treatment efficacy.
 - Increased trial participation by an estimated 40% by aggregating and screening new patient data.
@@ -26,21 +33,21 @@ _Sunnybrook Research Institute_ | Feb 2022 - Feb 2024
 - Accelerated the activation of 10+ new trials through financial and legal submissions, reducing startup time by 30%.
 - Liaised with stakeholders and client representatives by facilitating on-site/remote visits and reconciling 200+ queries.
 
-### Summer Undergraduate Researcher
-
-_University Health Network (UHN)_ | May 2019 - Aug 2019
-
-- Executed multivariate regression on CPAC data to identify comorbidity predictors of clinical trial dropout rates and presented findings to a multidisciplinary panel.
-- Facilitated 15 research studies by directing patients and maintaining databases with Excel and SPSS.
-- Analyzed 15 records of provincial healthcare data, identifying bottlenecks that led to a 20% improvement in patient transition efficiency.
-
 ### Machine Learning for Life Science Mentorship
 
-_University of Toronto_ | Jun 2024 - Jul 2025
+_University of Toronto_ | Toronto, ON | Jun 2024 - Jul 2025
 
 - Partnered with researchers as a clinical research coordinator consultant.
 - Advised on participant recruitment strategies by providing communication recommendations to improve trial enrollment by 10%.
 - Applied learned machine learning and deep learning concepts towards developing independent data science projects.
+
+### Summer Undergraduate Researcher
+
+_University Health Network (UHN)_ | Toronto, ON | May 2019 - Aug 2019
+
+- Executed multivariate regression on CPAC data to identify comorbidity predictors of clinical trial dropout rates and presented findings to a multidisciplinary panel.
+- Facilitated 15 research studies by directing patients and maintaining databases with Excel and SPSS.
+- Analyzed 15 records of provincial healthcare data, identifying bottlenecks that led to a 20% improvement in patient transition efficiency.
 
 ## Projects
 

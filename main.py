@@ -15,7 +15,11 @@ import pyperclip
 # on sys.path before any src module is imported.
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
-from job_processor import process_application, run_audit  # noqa: E402
+from job_processor import (  # noqa: E402
+    _DEFAULT_MAX_PAGES,
+    process_application,
+    run_audit,
+)
 
 _PROJECT_ROOT = Path(__file__).parent
 _DEFAULT_RESUME = _PROJECT_ROOT / "data/masters/Jeffrey_Ding_CV.md"
@@ -101,6 +105,16 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Write the tailored Markdown only, skipping PDF export",
     )
+    parser.add_argument(
+        "--pages", "-p",
+        type=int,
+        default=_DEFAULT_MAX_PAGES,
+        metavar="N",
+        help=(
+            f"Maximum PDF pages (default: {_DEFAULT_MAX_PAGES}). "
+            "Least-relevant bullets are trimmed to fit."
+        ),
+    )
     return parser
 
 
@@ -121,6 +135,8 @@ def main() -> None:
 
     if args.audit_only and args.no_audit:
         parser.error("--audit-only and --no-audit are mutually exclusive")
+    if args.pages < 1:
+        parser.error("--pages must be at least 1")
 
     if args.company is None:
         args.company = input("Company: ").strip()
@@ -160,6 +176,7 @@ def main() -> None:
             audit=not args.no_audit,
             factcheck=not args.no_factcheck,
             export_pdf=not args.no_pdf,
+            max_pages=args.pages,
         )
     except FileNotFoundError as exc:
         print(f"error: {exc}", file=sys.stderr)

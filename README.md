@@ -3,7 +3,7 @@
 [![CI](https://github.com/JeffHDing/job_opt/actions/workflows/ci.yml/badge.svg)](https://github.com/JeffHDing/job_opt/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/JeffHDing/job_opt/branch/main/graph/badge.svg)](https://codecov.io/gh/JeffHDing/job_opt)
 
-A CLI that tailors a master Markdown resume to a job description in three stages: an **ATS audit** that scores the resume and issues mechanical tailoring directives, a **tailor** pass that executes those directives, and a **fact-check** pass that catches anything the tailor claimed beyond what the master supports. The result is trimmed to one page and exported as an ATS-friendly PDF.
+A CLI that tailors a master Markdown resume to a job description in three stages: an **ATS audit** that scores the resume and issues mechanical tailoring directives, a **tailor** pass that executes those directives, and a **fact-check** pass that catches anything the tailor claimed beyond what the master supports. The result is trimmed to a chosen page limit and exported as an ATS-friendly PDF.
 
 The premise is that a tailoring model left to its own devices will quietly invent things to hit keywords. So the model is never trusted twice: what the auditor asks for, the tailor must justify against the master, and what the tailor produces, the fact-checker re-derives from the master before it reaches the page.
 
@@ -21,7 +21,7 @@ Reports are saved to `data/audit_reports/YYYYMMDD_{Company}_{Role}_ats_audit.md`
 
 ### 2. Tailor — `prompts/tailor_system.txt`
 
-Receives the master resume, the job description, and the audit. It executes the audit's directives, skipping any it cannot carry out without a claim the master does not support. Its other rules cover structure preservation, an untouchable identity block (name, contact line, role titles, employers, dates), Technical Skills fidelity, keyword substitution over keyword appending, and hard one-page limits.
+Receives the master resume, the job description, and the audit. It executes the audit's directives, skipping any it cannot carry out without a claim the master does not support. Its other rules cover structure preservation, an untouchable identity block (name, contact line, role titles, employers, dates), Technical Skills fidelity, keyword substitution over keyword appending, and a page budget that scales with `--pages`.
 
 It is explicitly forbidden from emitting the auditor's `[X]%` placeholders, which are meant for the human to fill into the master.
 
@@ -45,7 +45,7 @@ Model judgement handles the parts that need reading comprehension. Everything me
 | No leftover placeholders | The tailored output is scanned for `[X]`-style brackets, ignoring Markdown links | `audit.find_placeholders` |
 | No duplicate bullets | Repeats within a section are stripped | `resume_diff.dedupe_bullets` |
 | Job title matches the posting | Stamped into the header after the fact-check, so a tailor edit to that line is still caught | `job_processor._set_header_role` |
-| One page | The PDF is rendered in memory and bullets are trimmed until it fits, least-important first | `job_processor._ensure_one_page` |
+| Page limit | The PDF is rendered in memory and bullets are trimmed until it fits `--pages` (default 2), least-important first | `job_processor._ensure_page_limit` |
 
 Stages 1 and 3 degrade rather than fail: a transient API error marks them skipped and the run continues, so a network blip never costs you the tailored resume. Stage 2 raises, because there is no output without it. Every call retries on 503 and 429 with exponential backoff.
 
@@ -175,6 +175,9 @@ python main.py -c Stripe -r "Data Scientist" --resume data/masters/my_other.md
 
 # Iterate quickly: skip the audit and the PDF export
 python main.py -c Stripe -r "Data Scientist" --no-audit --no-pdf
+
+# Fit a one-page ATS resume instead of the default two pages
+python main.py -c Stripe -r "Data Scientist" --pages 1
 ```
 
 ### All options
@@ -189,6 +192,7 @@ python main.py -c Stripe -r "Data Scientist" --no-audit --no-pdf
 | `--no-audit` | | off | Skip stage 1; tailor without directives |
 | `--no-factcheck` | | off | Skip stage 3 |
 | `--no-pdf` | | off | Write Markdown only |
+| `--pages` | `-p` | `2` | Maximum PDF pages; least-relevant bullets are trimmed to fit |
 
 Outputs land in `data/tailored_outputs/Jeffrey_Ding_CV_{Role}.md` and `.pdf`.
 
@@ -225,7 +229,8 @@ CI runs `ruff check .` and `pytest -m "not integration" --cov` on every push and
 
 ## Notes and limitations
 
-- All three agents use `gemini-3.1-flash-lite`. The auditor does the most reasoning and benefits most from a stronger model; change `_AUDITOR_MODEL` in `src/llm_client.py` if you have the quota.
+- All three agents use `gemini-3.5-flash-lite`. The auditor does the most reasoning and benefits most from a stronger model; change `_AUDITOR_MODEL` in `src/llm_client.py` if you have the quota.
+- PDFs render in 12 pt Times New Roman (Liberation Serif as a fallback) to match a conventional academic CV. Pass `--pages 1` for a one-page ATS cut; the default is two pages.
 - A 90%+ score is often genuinely unreachable, and the audit says so rather than fabricating its way there. When it reports `Reachable: No`, the fix is in the master resume — usually real metrics from the Quantification Requests section — not in the tailoring.
 - `normalize_skill_rows` only operates on Skills rows the tailor kept. A row deleted outright is left alone, since there is no reliable place to reinsert it.
 - Job scraping (LinkedIn/Indeed) is not implemented.
