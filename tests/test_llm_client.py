@@ -7,6 +7,8 @@ Run them explicitly:
     pytest tests/test_llm_client.py -m integration -s
 
 Requires GEMINI_API_KEY to be set in the environment or .env file.
+
+One run of this module costs 3 requests: one per pipeline stage.
 """
 import sys
 import time
@@ -16,7 +18,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from llm_client import review_resume, tailor_resume  # noqa: E402
+from audit import find_placeholders  # noqa: E402
+from llm_client import audit_resume, fact_check, tailor_resume  # noqa: E402
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -27,7 +30,7 @@ pytestmark = pytest.mark.integration
 
 @pytest.fixture(scope="module")
 def master_md() -> str:
-    path = _PROJECT_ROOT / "data/masters/Jeffrey_Ding_CV_Data_Science.md"
+    path = _PROJECT_ROOT / "data/masters/Jeffrey_Ding_CV.md"
     if not path.exists():
         pytest.skip(f"Master resume not found: {path}")
     return path.read_text()
@@ -43,83 +46,103 @@ def sample_jd() -> str:
     )
 
 
-@pytest.fixture(scope="module")
-def tailor_result(master_md, sample_jd) -> tuple[str, object]:
-    """Single tailor+validate API call shared across all tests that need it."""
+def _timed(label: str, fn):
     t0 = time.perf_counter()
-    tailored, result = tailor_resume(master_md, sample_jd)
-    elapsed = time.perf_counter() - t0
-    print(f"\n  [tailor_result fixture] elapsed: {elapsed:.2f}s", flush=True)
-    return tailored, result
+    value = fn()
+    print(f"\n  [{label}] elapsed: {time.perf_counter() - t0:.2f}s", flush=True)
+    return value
 
 
 # ---------------------------------------------------------------------------
-# tailor_resume
+# Stage 1 — audit_resume
 # ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def audit(master_md, sample_jd):
+    return _timed("audit", lambda: audit_resume(master_md, sample_jd))
+
+
+class TestAuditResume:
+    def test_succeeds(self, audit):
+        assert audit.skipped is False, audit.skip_reason
+        assert len(audit.markdown) > 100
+
+    def test_includes_all_required_sections(self, audit):
+        for heading in (
+            "ATS Score",
+            "Keyword Match",
+            "Gap Analysis",
+            "Tailoring Directives",
+            "Quantification",
+            "Projected Score",
+        ):
+            assert heading in audit.markdown
+
+    def test_scores_are_parseable_and_in_range(self, audit):
+        assert audit.current_score is not None
+        assert 0 <= audit.current_score <= 100
+        assert audit.projected_score is not None
+        assert 0 <= audit.projected_score <= 100
+
+    def test_tailoring_improves_the_projected_score(self, audit):
+        assert audit.projected_score >= audit.current_score
+
+    def test_issues_actionable_directives(self, audit):
+        assert len(audit.directives) >= 3
+
+
+# ---------------------------------------------------------------------------
+# Stage 2 — tailor_resume
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def tailored(master_md, sample_jd, audit) -> str:
+    return _timed(
+        "tailor", lambda: tailor_resume(master_md, sample_jd, audit=audit)
+    )
+
 
 class TestTailorResume:
-    def test_returns_nonempty_markdown(self, tailor_result):
-        tailored, _ = tailor_result
+    def test_returns_nonempty_markdown(self, tailored):
         assert isinstance(tailored, str)
         assert len(tailored) > 100
         assert tailored.startswith("#")
 
-    def test_validation_result_has_passed_field(self, tailor_result):
-        _, result = tailor_result
-        assert isinstance(result.passed, bool)
-
-    def test_validate_false_skips_judge(self, master_md, sample_jd):
-        t0 = time.perf_counter()
-        _, result = tailor_resume(master_md, sample_jd, validate=False)
-        elapsed = time.perf_counter() - t0
-        msg = f"\n  [test_validate_false_skips_judge] elapsed: {elapsed:.2f}s"
-        print(msg, flush=True)
-        assert result.skipped is True
-        assert result.skip_reason == "validate=False"
-
-    def test_tailored_preserves_contact_line(self, tailor_result):
-        tailored, _ = tailor_result
+    def test_preserves_contact_line(self, tailored):
         assert "Jeffrey Ding" in tailored
 
-    def test_tailored_preserves_all_sections(self, tailor_result):
-        tailored, _ = tailor_result
-        sections = (
+    def test_preserves_all_sections(self, tailored):
+        for section in (
             "## Technical Skills",
             "## Education",
             "## Experience",
             "## Projects",
-        )
-        for section in sections:
+        ):
             assert section in tailored
 
+    def test_does_not_leak_audit_placeholders(self, tailored):
+        assert find_placeholders(tailored) == []
+
+    def test_does_not_leak_the_audit_report(self, tailored):
+        assert "ATS score" not in tailored
+        assert "Tailoring Directives" not in tailored
+
 
 # ---------------------------------------------------------------------------
-# review_resume (editor agent)
+# Stage 3 — fact_check
 # ---------------------------------------------------------------------------
 
-@pytest.fixture(scope="module")
-def editor_feedback(master_md, sample_jd) -> str:
-    t0 = time.perf_counter()
-    feedback = review_resume(master_md, sample_jd)
-    elapsed = time.perf_counter() - t0
-    print(f"\n  [editor_feedback fixture] elapsed: {elapsed:.2f}s", flush=True)
-    return feedback
-
-
-class TestReviewResume:
-    def test_returns_nonempty_markdown(self, editor_feedback):
-        assert isinstance(editor_feedback, str)
-        assert len(editor_feedback) > 100
-
-    def test_includes_all_required_sections(self, editor_feedback):
-        expected_headings = (
-            "Match Analysis",
-            "Quantification",
-            "Keyword",
-            "STAR",
-            "ATS",
-            "Priorities",
+class TestFactCheck:
+    def test_reviews_the_tailored_output(self, master_md, tailored, sample_jd):
+        result = _timed(
+            "fact_check",
+            lambda: fact_check(master_md, tailored, sample_jd),
         )
-        for heading in expected_headings:
-            assert heading in editor_feedback
+        assert result.skipped is False, result.skip_reason
+        assert isinstance(result.passed, bool)
+        print(f"\n{result.summary()}", flush=True)
 
+    def test_unchanged_resume_needs_no_api_call(self, master_md, sample_jd):
+        result = fact_check(master_md, master_md, sample_jd)
+        assert result.passed is True
+        assert result.reviewed == 0

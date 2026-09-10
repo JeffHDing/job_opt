@@ -1,3 +1,10 @@
+"""
+main.py — the single CLI entry point.
+
+Runs the three-stage workflow: audit the master resume as an ATS would, tailor
+it against the audit's directives, then fact-check the result against the
+master. Individual stages can be switched off with the --no-* flags.
+"""
 import argparse
 import sys
 from pathlib import Path
@@ -8,9 +15,10 @@ import pyperclip
 # on sys.path before any src module is imported.
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
-from job_processor import process_application  # noqa: E402
+from job_processor import process_application, run_audit  # noqa: E402
 
-_DEFAULT_RESUME = Path(__file__).parent / "data/masters/Jeffrey_Ding_CV_Data_Science.md"
+_PROJECT_ROOT = Path(__file__).parent
+_DEFAULT_RESUME = _PROJECT_ROOT / "data/masters/Jeffrey_Ding_CV.md"
 _CLIPBOARD_PREVIEW_LENGTH = 300
 
 
@@ -42,9 +50,12 @@ def _read_job_description() -> str:
     return sys.stdin.read()
 
 
-def main() -> None:
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Tailor a master resume to a job description and export a PDF."
+        description=(
+            "Audit a master resume against a job description, tailor it to the "
+            "audit's findings, and fact-check the result."
+        )
     )
     parser.add_argument(
         "--company", "-c",
@@ -71,11 +82,45 @@ def main() -> None:
         help=f"Master resume Markdown (default: {_DEFAULT_RESUME.name})",
     )
     parser.add_argument(
-        "--no-validate",
+        "--audit-only",
         action="store_true",
-        help="Skip the judge validation step (faster, 1 API call instead of 2)",
+        help="Run the ATS audit and stop; write the report without tailoring",
     )
+    parser.add_argument(
+        "--no-audit",
+        action="store_true",
+        help="Tailor without auditing first (saves one API call)",
+    )
+    parser.add_argument(
+        "--no-factcheck",
+        action="store_true",
+        help="Skip the fact-check stage (saves one API call)",
+    )
+    parser.add_argument(
+        "--no-pdf",
+        action="store_true",
+        help="Write the tailored Markdown only, skipping PDF export",
+    )
+    return parser
+
+
+def _resolve_job_description(args: argparse.Namespace) -> str:
+    if args.jd is not None:
+        if not args.jd.exists():
+            print(f"error: JD file not found: {args.jd}", file=sys.stderr)
+            sys.exit(1)
+        return args.jd.read_text()
+    if sys.stdin.isatty():
+        return _read_job_description()
+    return sys.stdin.read()
+
+
+def main() -> None:
+    parser = _build_parser()
     args = parser.parse_args()
+
+    if args.audit_only and args.no_audit:
+        parser.error("--audit-only and --no-audit are mutually exclusive")
 
     if args.company is None:
         args.company = input("Company: ").strip()
@@ -87,36 +132,45 @@ def main() -> None:
     if not args.role:
         parser.error("role title cannot be empty")
 
-    # Read job description
-    if args.jd is not None:
-        if not args.jd.exists():
-            print(f"error: JD file not found: {args.jd}", file=sys.stderr)
-            sys.exit(1)
-        job_description = args.jd.read_text()
-    elif sys.stdin.isatty():
-        job_description = _read_job_description()
-    else:
-        job_description = sys.stdin.read()
-
+    job_description = _resolve_job_description(args)
     if not job_description.strip():
         print("error: job description is empty", file=sys.stderr)
         sys.exit(1)
 
-    print(f"\nTailoring resume for {args.role} at {args.company}...\n")
+    action = "Auditing" if args.audit_only else "Tailoring"
+    print(f"\n{action} resume for {args.role} at {args.company}...\n")
 
     try:
-        md_path, pdf_path = process_application(
+        if args.audit_only:
+            _, audit_path = run_audit(
+                job_description=job_description,
+                company=args.company,
+                role=args.role,
+                resume_path=args.resume,
+            )
+            if audit_path is None:
+                sys.exit(1)
+            return
+
+        result = process_application(
             job_description=job_description,
             company=args.company,
             role=args.role,
             resume_path=args.resume,
-            validate=not args.no_validate,
+            audit=not args.no_audit,
+            factcheck=not args.no_factcheck,
+            export_pdf=not args.no_pdf,
         )
     except FileNotFoundError as exc:
         print(f"error: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    print(f"\nDone!  PDF → {pdf_path.relative_to(Path(__file__).parent)}")
+    final = result.pdf_path or result.md_path
+    try:
+        final = final.relative_to(_PROJECT_ROOT)
+    except ValueError:
+        pass
+    print(f"\nDone!  {final}")
 
 
 if __name__ == "__main__":
