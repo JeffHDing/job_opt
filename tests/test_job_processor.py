@@ -4,25 +4,22 @@ Unit tests for job_processor.py.
 All external side effects (Gemini calls, PDF rendering, interactive revert
 prompt) are mocked so these run fast and offline.
 """
-import sys
 from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-
-import job_processor  # noqa: E402
-from audit import AuditReport  # noqa: E402
-from job_processor import (  # noqa: E402
+import job_processor
+from audit import AuditReport
+from job_processor import (
     _ensure_page_limit,
     _slug,
     _trim_one_bullet,
     process_application,
     run_audit,
 )
-from resume_diff import ValidationResult  # noqa: E402
+from resume_diff import ValidationResult
 
 
 def _make_resume(tmp_path: Path, content: str = "# Resume\n\n- bullet\n") -> Path:
@@ -83,8 +80,8 @@ class _Pipeline(ExitStack):
 @pytest.fixture(autouse=True)
 def _isolated_dirs(tmp_path, monkeypatch):
     """Keep every test's writes inside tmp_path, never in the real data/ dir."""
-    monkeypatch.setattr(job_processor, "_OUTPUT_DIR", tmp_path / "out")
-    monkeypatch.setattr(job_processor, "_AUDIT_DIR", tmp_path / "audits")
+    monkeypatch.setattr(job_processor, "OUTPUT_DIR", tmp_path / "out")
+    monkeypatch.setattr(job_processor, "AUDIT_DIR", tmp_path / "audits")
 
 
 # ---------------------------------------------------------------------------
@@ -143,7 +140,7 @@ class TestProcessApplication:
     def test_uses_default_resume_when_none_given(self, tmp_path, monkeypatch):
         default_resume = tmp_path / "default.md"
         default_resume.write_text("# Default Resume\n- bullet\n")
-        monkeypatch.setattr(job_processor, "_DEFAULT_RESUME", default_resume)
+        monkeypatch.setattr(job_processor, "DEFAULT_RESUME", default_resume)
         with _Pipeline() as p:
             process_application(job_description="jd", company="Acme", role="Eng")
         assert p.tailor.call_args[0][0] == "# Default Resume\n- bullet\n"
@@ -315,7 +312,7 @@ class TestProcessApplication:
     def test_creates_output_dir_if_missing(self, tmp_path, monkeypatch):
         resume = _make_resume(tmp_path)
         nested_out = tmp_path / "nested" / "out"
-        monkeypatch.setattr(job_processor, "_OUTPUT_DIR", nested_out)
+        monkeypatch.setattr(job_processor, "OUTPUT_DIR", nested_out)
         with _Pipeline():
             process_application(
                 job_description="jd", company="Acme", role="Eng", resume_path=resume

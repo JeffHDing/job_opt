@@ -1,14 +1,9 @@
 """
 Unit tests for audit.py — parsing the ATS auditor's Markdown report.
 """
-import sys
-from pathlib import Path
-
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-
-from audit import (  # noqa: E402
+from audit import (
     TARGET_SCORE,
     AuditReport,
     find_placeholders,

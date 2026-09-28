@@ -4,17 +4,10 @@ Tests for pdf_exporter.py.
 Requires weasyprint and its system dependencies (cairo, pango) — all present
 in the job_opt conda environment. No network calls needed.
 """
-import sys
-from pathlib import Path
-
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-
+from config import DEFAULT_RESUME
 from pdf_exporter import _RESUME_CSS, _build_html, generate_resume_pdf
-
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-_TEMPLATE = _PROJECT_ROOT / "data/masters/Jeffrey_Ding_CV.md"
 
 _MINIMAL_MD = """\
 # Jane Smith
@@ -50,10 +43,10 @@ class TestGenerateResumePdf:
         assert out.exists()
 
     def test_renders_template_resume(self, tmp_path):
-        if not _TEMPLATE.exists():
-            pytest.skip(f"Template not found: {_TEMPLATE}")
+        if not DEFAULT_RESUME.exists():
+            pytest.skip(f"Template not found: {DEFAULT_RESUME}")
         out = tmp_path / "jeffrey.pdf"
-        generate_resume_pdf(_TEMPLATE.read_text(), str(out))
+        generate_resume_pdf(DEFAULT_RESUME.read_text(), str(out))
         assert out.read_bytes().startswith(b"%PDF-")
 
     def test_empty_markdown_does_not_raise(self, tmp_path):

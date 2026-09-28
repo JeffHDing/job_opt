@@ -13,7 +13,7 @@ The premise is that a tailoring model left to its own devices will quietly inven
 
 ### 1. Audit — `prompts/auditor_system.txt`
 
-Scores the master resume against the job description exactly as an ATS would: literally, on the text present. A 100-point rubric covers hard skills (30), responsibility alignment (20), quantified impact (15), title match (10), depth and recency (10), hard qualifications (10), and parseability (5).
+Scores the master resume against the job description exactly as an ATS would: literally, on the text present. A 100-point rubric covers hard skills (25), responsibility alignment (20), quantified impact (20), title match (10), depth and recency (10), hard qualifications (10), and parseability (5).
 
 The report separates gaps that tailoring can close from gaps that need experience the candidate does not have, then states a projected score and whether 90%+ is honestly reachable. Its directives are restricted to a five-verb grammar — `MOVE`, `REORDER`, `REPLACE`, `DROP`, `SURFACE` — each of which must quote text that already appears in the master. There is deliberately no verb for "add a bullet" or "rename a role", because those cannot be expressed without fabricating.
 
@@ -57,6 +57,7 @@ Stages 1 and 3 degrade rather than fail: a transient API error marks them skippe
 job_opt/
 ├── main.py                          # The single CLI entry point
 ├── src/
+│   ├── config.py                    # Paths and shared defaults, named once
 │   ├── job_processor.py             # Pipeline orchestration + post-processing
 │   ├── llm_client.py                # The three Gemini agents
 │   ├── audit.py                     # Audit report parsing (scores, directives)
@@ -72,8 +73,8 @@ job_opt/
 │   ├── audit_reports/               # Generated ATS audits (gitignored)
 │   └── tailored_outputs/            # Generated .md/.pdf (gitignored)
 ├── tests/
-├── environment.yml                  # Conda environment spec
-├── requirements-dev.txt             # Pip deps for CI / non-Conda setups
+├── environment.yml                  # Conda environment spec; defers to requirements-dev.txt
+├── requirements-dev.txt             # The dependency list, used by Conda, pip, and CI
 ├── pyproject.toml                   # Ruff, pytest markers, coverage config
 └── .env.example                     # API key template
 ```

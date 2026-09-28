@@ -4,18 +4,14 @@ Unit tests for llm_client.py – no network calls required.
 All Gemini API interactions are mocked so these run in CI without a key.
 """
 import json
-import sys
-from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
 import pytest
 from google.genai.errors import ClientError, ServerError
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-
-import llm_client  # noqa: E402
-from audit import AuditReport  # noqa: E402
-from llm_client import (  # noqa: E402
+import llm_client
+from audit import AuditReport
+from llm_client import (
     _get_client,
     _tailor_page_budget,
     _tailor_system_prompt,
@@ -24,8 +20,6 @@ from llm_client import (  # noqa: E402
     fact_check,
     tailor_resume,
 )
-
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 _MASTER = "# Resume\n\n## Experience\n\n### Acme\n\n- Built a pipeline in Python\n"
 

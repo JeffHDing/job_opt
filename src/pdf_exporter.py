@@ -23,18 +23,15 @@ body {
     line-height: 1.15;
 }
 h1 {
-    font-family: "Times New Roman", Times, "Liberation Serif", serif;
     font-size: 18pt;
     font-weight: bold;
     text-align: center;
     margin: 0 0 2px 0;
-    padding: 0;
 }
 /* Role title under the name — italic, like the academic CV */
 h1 + p {
     text-align: center;
     margin: 0 0 2px 0;
-    font-size: 12pt;
     font-style: italic;
     font-weight: normal;
 }
@@ -46,9 +43,6 @@ h1 + p strong {
 h1 + p + p {
     text-align: center;
     margin: 0 0 8px 0;
-    font-size: 12pt;
-    font-style: normal;
-    font-weight: normal;
 }
 h1 + p + p a {
     color: #0563C1;
@@ -83,9 +77,7 @@ h3 {
     flex: 1 1 auto;
 }
 .entry-header .dates {
-    font-size: 12pt;
     font-weight: bold;
-    font-style: normal;
     white-space: nowrap;
     flex: 0 0 auto;
 }
@@ -95,8 +87,6 @@ h3 {
     align-items: baseline;
     gap: 12px;
     margin: 0 0 2px 0;
-    font-style: normal;
-    font-size: 12pt;
     page-break-after: avoid;
 }
 .entry-sub.has-loc,
@@ -109,13 +99,11 @@ h3 {
 .entry-sub .loc {
     flex: 0 0 auto;
     white-space: nowrap;
-    font-style: italic;
 }
 /* Role/date lines rendered as italicised <p> after h3 (unparsed entries) */
 h3 + p {
     margin: 0 0 2px 0;
     font-style: italic;
-    font-size: 12pt;
 }
 p {
     margin: 0 0 4px 0;
@@ -134,9 +122,6 @@ ul.skills {
 ul.skills li {
     margin-bottom: 2px;
     padding-left: 0;
-}
-strong {
-    font-weight: bold;
 }
 /* Keep each sub-section (role/project) on the same page when possible */
 h3, li {
@@ -231,10 +216,19 @@ def _build_html(markdown_text: str) -> str:
 </html>"""
 
 
+def _render(markdown_text: str):
+    """Lay the markdown out as a paginated WeasyPrint document, in memory."""
+    return HTML(string=_build_html(markdown_text)).render()
+
+
+def pages_label(count: int) -> str:
+    """Pluralise a page count for printing: 1 → '1 page', 2 → '2 pages'."""
+    return f"{count} page{'' if count == 1 else 's'}"
+
+
 def get_page_count(markdown_text: str) -> int:
     """Render markdown in-memory and return the number of PDF pages."""
-    document = HTML(string=_build_html(markdown_text)).render()
-    return len(document.pages)
+    return len(_render(markdown_text).pages)
 
 
 def generate_resume_pdf(markdown_text: str, output_path: str) -> int:
@@ -252,9 +246,8 @@ def generate_resume_pdf(markdown_text: str, output_path: str) -> int:
       - page-break-inside: avoid keeps each role/project block intact
       - no floats, columns, or images — purely linear text flow
     """
-    document = HTML(string=_build_html(markdown_text)).render()
+    document = _render(markdown_text)
     document.write_pdf(output_path)
     page_count = len(document.pages)
-    suffix = "s" if page_count != 1 else ""
-    print(f"PDF written → {output_path}  ({page_count} page{suffix})")
+    print(f"PDF written → {output_path}  ({pages_label(page_count)})")
     return page_count

@@ -1,6 +1,6 @@
 # Jeffrey Ding
 
-**Data Scientist**
+**[Role Title]**
 
 (+1) 647-928-5709 | [jeffreyhding@gmail.com](mailto:jeffreyhding@gmail.com) | [LinkedIn](https://www.linkedin.com/in/jeffhding/) | [GitHub](https://www.github.com/JeffHDing)
 
@@ -27,39 +27,40 @@ _University of Western Ontario_ | London, ON | GPA: 3.7/4.0 | 2017 - 2021
 
 _Sunnybrook Research Institute_ | Toronto, ON | Feb 2022 - Feb 2024
 
-- Abstracted unstructured data from 250+ patients to evaluate outcomes and causally infer treatment efficacy.
-- Increased trial participation by an estimated 40% by aggregating and screening new patient data.
-- Managed the simultaneous conduct of 15+ clinical trials in a high-growth environment by coordinating cross-functional teams.
-- Accelerated the activation of 10+ new trials through financial and legal submissions, reducing startup time by 30%.
-- Liaised with stakeholders and client representatives by facilitating on-site/remote visits and reconciling 200+ queries.
+- Abstracted unstructured data using proprietary EDC systems from 250+ patients to evaluate outcomes and causally infer treatment efficacy.
+- Increased trial participation by an estimated 40% by aggregating and screening new patient data within the hospital database.
+- Leveraged organizational and leadership skills to manage the simultaneous conduct of 15+ clinical trials, coordinating cross-functional teams in a high-growth environment.
+- Accelerated the activation of 10+ new trials through thorough scrutiny of financial and legal submissions, reducing startup time within the team by 30%.
+- Liaised with stakeholders and client representatives by facilitating on-site/remote visits and reconciling 200+ queries on CRO systems.
 
 ### Machine Learning for Life Science Mentorship
 
 _University of Toronto_ | Toronto, ON | Jun 2024 - Jul 2025
 
-- Partnered with researchers as a clinical research coordinator consultant.
-- Advised on participant recruitment strategies by providing communication recommendations to improve trial enrollment by 10%.
-- Applied learned machine learning and deep learning concepts towards developing independent data science projects.
+- Partnered with researchers as a clinical research coordinator consultant to bolster recruitment to ongoing projects.
+- Advised on participant recruitment strategies by providing communication recommendations to researchers improving trial enrollment by 10%.
+- Applied machine learning and deep learning concepts towards developing independent data science projects in Python, such as a convolutional neural network for disease detection.
 
 ### Summer Undergraduate Researcher
 
 _University Health Network (UHN)_ | Toronto, ON | May 2019 - Aug 2019
 
-- Executed multivariate regression on CPAC data to identify comorbidity predictors of clinical trial dropout rates and presented findings to a multidisciplinary panel.
-- Facilitated 15 research studies by directing patients and maintaining databases with Excel and SPSS.
-- Analyzed 15 records of provincial healthcare data, identifying bottlenecks that led to a 20% improvement in patient transition efficiency.
+- Performed multivariate regression on CPAC data with SPSS to identify burdens on clinical trial dropout rates and presented findings in a conference to a multidisciplinary panel of judges.
+- Analyzed 15 records of provincial healthcare data, identifying operational bottlenecks that led to a 20% improvement in patient transition efficiency and reduced burden on specialist care.
+- Supported patient care by exercising soft skills and customer-oriented communication to provide excellent patient experiences.
 
 ## Projects
 
 ### Retail Display Compliance Automation | MDS Capstone Industry Partner Project
 
-- Refined industry business compliance criteria into technical specifications and developed a computer vision workflow comprised of a 3 YOLO-model ensemble to deliver a scalable solution with > 95% precision.
+- Designed a computer vision workflow consisting of a 3 YOLO-model ensemble using Roboflow to deliver a scalable, automated solution to an industry partner with > 95% precision.
+- Refined client feedback, business needs, and industry compliance criteria into feasible technical specifications, and developed 4 iterative product prototypes in Python to suit client needs.
 
 ### Amazon Product Review RAG System
 
-- Built an Retrieval-Augmented Generation (RAG) pipeline over 10,000+ Amazon reviews (8.6 GB jsonl), combining BM25 lexical and dense-vector semantic retrieval with Reciprocal Rank Fusion (RRF) to generate product recommendations between 2-3 seconds.
+- Used Python to build an Retrieval-Augmented Generation (RAG) pipeline for over 10,000+ Amazon reviews (8.6 GB jsonl), combining BM25 lexical and dense-vector semantic retrieval with Reciprocal Rank Fusion (RRF) to generate product recommendations between 2-3 seconds.
 
-- Final product ran locally with a quantized Qwen 3.5 (2B) LLM via Ollama and was served in a user-friendly Shiny app.
+- Served final product locally with a quantized Qwen 3.5 (2B) LLM via Ollama and in a user-friendly, interactive Shiny app.
 
 ### Detecting Diabetic Retinopathy with CNNs
 
