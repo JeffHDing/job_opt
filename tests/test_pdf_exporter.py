@@ -7,7 +7,12 @@ in the job_opt conda environment. No network calls needed.
 import pytest
 
 from config import DEFAULT_RESUME
-from pdf_exporter import _RESUME_CSS, _build_html, generate_resume_pdf
+from pdf_exporter import (
+    _RESUME_CSS,
+    _build_html,
+    generate_resume_pdf,
+    get_page_count,
+)
 
 _MINIMAL_MD = """\
 # Jane Smith
@@ -61,6 +66,19 @@ class TestGenerateResumePdf:
         assert out.read_bytes().startswith(b"%PDF-")
 
 
+class TestGetPageCount:
+    def test_short_resume_is_one_page(self):
+        assert get_page_count(_MINIMAL_MD) == 1
+
+    def test_long_resume_spans_multiple_pages(self):
+        md = "# Name\n\n" + "".join(f"- Bullet point {i}\n" for i in range(200))
+        assert get_page_count(md) > 1
+
+    def test_matches_generate_resume_pdf(self, tmp_path):
+        md = "# Name\n\n" + "".join(f"- Bullet point {i}\n" for i in range(200))
+        assert get_page_count(md) == generate_resume_pdf(md, str(tmp_path / "r.pdf"))
+
+
 class TestResumeCss:
     def test_body_is_times_new_roman_at_12pt(self):
         assert "Times New Roman" in _RESUME_CSS
@@ -107,6 +125,19 @@ class TestBuildHtml:
         )
         html = _build_html(md)
         assert '<ul class="skills">' in html
+
+    @pytest.mark.parametrize(
+        "subtitle",
+        [
+            "_Acme Corp_ | Toronto, ON",
+            "Just a description with no separators",
+        ],
+    )
+    def test_leaves_subtitle_without_trailing_date_alone(self, subtitle):
+        md = f"### Resume Optimizer\n\n{subtitle}\n"
+        html = _build_html(md)
+        assert 'class="entry-header"' not in html
+        assert "<h3>Resume Optimizer</h3>" in html
 
     def test_leaves_projects_without_dates_alone(self):
         md = "### Resume Optimizer\n\n- Built a tailor.\n"
