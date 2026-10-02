@@ -34,6 +34,18 @@ class ResumeChange:
     kind: str = BULLET
 
 
+def _reason(violation: dict) -> str:
+    return violation.get("reason", "(no reason given)")
+
+
+def _edit_pair(violation: dict, indent: str) -> list[str]:
+    """The before/after text of a flagged edit, indented for where it prints."""
+    return [
+        f"{indent}original: {violation.get('original', '')}",
+        f"{indent}tailored: {violation.get('tailored', '')}",
+    ]
+
+
 @dataclass
 class ValidationResult:
     passed: bool
@@ -72,9 +84,8 @@ class ValidationResult:
         for v in self.violations:
             severity = v.get("severity", "")
             tag = f"[{severity}] " if severity else ""
-            lines.append(f"   • {tag}{v.get('reason', '(no reason given)')}")
-            lines.append(f"     original: {v.get('original', '')}")
-            lines.append(f"     tailored: {v.get('tailored', '')}")
+            lines.append(f"   • {tag}{_reason(v)}")
+            lines.extend(_edit_pair(v, "     "))
         return "\n".join(lines)
 
 
@@ -108,6 +119,18 @@ def _iter_lines_with_section(lines: Iterable[str]) -> Iterator[tuple[str, str]]:
             current_h3 = line[4:].strip()
         key = f"{current_h2} / {current_h3}" if current_h3 else current_h2
         yield key, raw_line
+
+
+def _indent_and_eol(raw_line: str) -> tuple[str, str]:
+    """
+    The leading whitespace and trailing newline of *raw_line*.
+
+    Rewriting a line means replacing only its text, so both have to be carried
+    across verbatim: the indent keeps nested bullets nested, and preserving the
+    absence of a final newline keeps a rewrite from lengthening the document.
+    """
+    indent = " " * (len(raw_line) - len(raw_line.lstrip()))
+    return indent, "\n" if raw_line.endswith("\n") else ""
 
 
 def _classify(raw_line: str) -> tuple[str, str] | None:
@@ -185,6 +208,23 @@ def _closest_match(
     return best if _token_overlap(target, best) >= min_overlap else None
 
 
+def _pair_with_master(
+    section: str, tailored: str, candidates: list[str], kind: str
+) -> ResumeChange:
+    """
+    Record a piece of tailored content alongside its closest master counterpart.
+
+    Content with no plausible counterpart is recorded against NO_MASTER_MATCH,
+    marking it as wholly new rather than an edit of something existing.
+    """
+    return ResumeChange(
+        section=section,
+        original=_closest_match(tailored, candidates) or NO_MASTER_MATCH,
+        tailored=tailored,
+        kind=kind,
+    )
+
+
 def find_changed_bullets(master_md: str, tailored_md: str) -> list[ResumeChange]:
     """
     Compare master and tailored resumes bullet by bullet.
@@ -202,13 +242,7 @@ def find_changed_bullets(master_md: str, tailored_md: str) -> list[ResumeChange]
         m_set = set(m_list)
         for tb in t_list:
             if tb not in m_set:
-                best = _closest_match(tb, m_list)
-                changes.append(ResumeChange(
-                    section=section,
-                    original=best if best else NO_MASTER_MATCH,
-                    tailored=tb,
-                    kind=BULLET,
-                ))
+                changes.append(_pair_with_master(section, tb, m_list, BULLET))
     return changes
 
 
@@ -234,13 +268,7 @@ def find_changed_lines(master_md: str, tailored_md: str) -> list[ResumeChange]:
         if text in master_set or text in seen:
             continue
         seen.add(text)
-        best = _closest_match(text, master_lines)
-        changes.append(ResumeChange(
-            section=section,
-            original=best if best else NO_MASTER_MATCH,
-            tailored=text,
-            kind=LINE,
-        ))
+        changes.append(_pair_with_master(section, text, master_lines, LINE))
     return changes
 
 
@@ -407,8 +435,7 @@ def revert_violations(tailored_md: str, violations: list[dict]) -> str:
         if classified and classified[1] in pending:
             kind, text = classified
             original = pending.pop(text)
-            indent = " " * (len(raw_line) - len(raw_line.lstrip()))
-            eol = "\n" if raw_line.endswith("\n") else ""
+            indent, eol = _indent_and_eol(raw_line)
 
             if kind == BULLET:
                 section_bullets = present.setdefault(section, set())
@@ -523,8 +550,7 @@ def normalize_skill_rows(master_md: str, tailored_md: str) -> str:
     for raw_line in tailored_md.splitlines(keepends=True):
         classified = _classify(raw_line)
         if classified and classified[0] == BULLET and classified[1] in rewrites:
-            indent = " " * (len(raw_line) - len(raw_line.lstrip()))
-            eol = "\n" if raw_line.endswith("\n") else ""
+            indent, eol = _indent_and_eol(raw_line)
             result.append(f"{indent}- {rewrites.pop(classified[1])}{eol}")
             continue
         result.append(raw_line)
@@ -540,9 +566,8 @@ def _format_violation_review(violation: dict, index: int, total: int) -> str:
         heading += f"  [{severity}]"
     return "\n".join([
         f"{heading}:",
-        f"  Reason: {violation.get('reason', '(no reason given)')}",
-        f"  original: {violation.get('original', '')}",
-        f"  tailored: {violation.get('tailored', '')}",
+        f"  Reason: {_reason(violation)}",
+        *_edit_pair(violation, "  "),
     ])
 
 

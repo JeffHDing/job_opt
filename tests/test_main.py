@@ -88,6 +88,7 @@ class TestCLI:
         assert kwargs["audit"] is True
         assert kwargs["factcheck"] is True
         assert kwargs["export_pdf"] is True
+        assert kwargs["max_pages"] == 2
 
     @pytest.mark.parametrize("flag, disabled_kwarg", [
         ("--no-audit", "audit"),
@@ -177,3 +178,22 @@ class TestCLI:
             mock_process.call_args.kwargs["job_description"]
             == "Piped job description."
         )
+
+    def test_pages_flag_is_forwarded(self, tmp_path, jd_file):
+        with patch(
+            "main.process_application", return_value=_result(tmp_path)
+        ) as mock_process:
+            _run(["-c", "Acme", "-r", "Eng", "-j", str(jd_file), "--pages", "1"])
+        assert mock_process.call_args.kwargs["max_pages"] == 1
+
+    def test_short_pages_flag_is_forwarded(self, tmp_path, jd_file):
+        with patch(
+            "main.process_application", return_value=_result(tmp_path)
+        ) as mock_process:
+            _run(["-c", "Acme", "-r", "Eng", "-j", str(jd_file), "-p", "3"])
+        assert mock_process.call_args.kwargs["max_pages"] == 3
+
+    def test_pages_must_be_at_least_one(self, jd_file):
+        with pytest.raises(SystemExit) as exc:
+            _run(["-c", "Acme", "-r", "Eng", "-j", str(jd_file), "--pages", "0"])
+        assert exc.value.code == 2

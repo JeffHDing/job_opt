@@ -1,4 +1,4 @@
-# install with conda env create -f env.yml
+# install with: conda env create -f environment.yml
 name: "job_opt"
 channels:
   - conda-forge
@@ -7,11 +7,9 @@ channels:
 dependencies:
   - python==3.12
   - pip
-  - google-genai
-  - markdown
+  # Installed through conda rather than pip so that the cairo/pango system
+  # libraries WeasyPrint links against come with it.
   - weasyprint
-  - python-dotenv
-  - pyperclip
-  - pytest
-  - ruff
-  - pytest-cov
+  # Everything else is declared once, in requirements-dev.txt.
+  - pip:
+      - -r requirements-dev.txt

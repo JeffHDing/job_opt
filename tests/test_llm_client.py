@@ -10,18 +10,13 @@ Requires GEMINI_API_KEY to be set in the environment or .env file.
 
 One run of this module costs 3 requests: one per pipeline stage.
 """
-import sys
 import time
-from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-
-from audit import find_placeholders  # noqa: E402
-from llm_client import audit_resume, fact_check, tailor_resume  # noqa: E402
-
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+from audit import find_placeholders
+from config import DEFAULT_RESUME
+from llm_client import audit_resume, fact_check, tailor_resume
 
 # Skip the entire module if the marker isn't requested, so `pytest` (no flags)
 # stays fast and never touches the network.
@@ -30,10 +25,9 @@ pytestmark = pytest.mark.integration
 
 @pytest.fixture(scope="module")
 def master_md() -> str:
-    path = _PROJECT_ROOT / "data/masters/Jeffrey_Ding_CV.md"
-    if not path.exists():
-        pytest.skip(f"Master resume not found: {path}")
-    return path.read_text()
+    if not DEFAULT_RESUME.exists():
+        pytest.skip(f"Master resume not found: {DEFAULT_RESUME}")
+    return DEFAULT_RESUME.read_text()
 
 
 @pytest.fixture(scope="module")

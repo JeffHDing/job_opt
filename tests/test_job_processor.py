@@ -4,24 +4,22 @@ Unit tests for job_processor.py.
 All external side effects (Gemini calls, PDF rendering, interactive revert
 prompt) are mocked so these run fast and offline.
 """
-import sys
 from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-
-import job_processor  # noqa: E402
-from audit import AuditReport  # noqa: E402
-from job_processor import (  # noqa: E402
+import job_processor
+from audit import AuditReport
+from job_processor import (
+    _ensure_page_limit,
     _slug,
     _trim_one_bullet,
     process_application,
     run_audit,
 )
-from resume_diff import ValidationResult  # noqa: E402
+from resume_diff import ValidationResult
 
 
 def _make_resume(tmp_path: Path, content: str = "# Resume\n\n- bullet\n") -> Path:
@@ -82,8 +80,8 @@ class _Pipeline(ExitStack):
 @pytest.fixture(autouse=True)
 def _isolated_dirs(tmp_path, monkeypatch):
     """Keep every test's writes inside tmp_path, never in the real data/ dir."""
-    monkeypatch.setattr(job_processor, "_OUTPUT_DIR", tmp_path / "out")
-    monkeypatch.setattr(job_processor, "_AUDIT_DIR", tmp_path / "audits")
+    monkeypatch.setattr(job_processor, "OUTPUT_DIR", tmp_path / "out")
+    monkeypatch.setattr(job_processor, "AUDIT_DIR", tmp_path / "audits")
 
 
 # ---------------------------------------------------------------------------
@@ -142,7 +140,7 @@ class TestProcessApplication:
     def test_uses_default_resume_when_none_given(self, tmp_path, monkeypatch):
         default_resume = tmp_path / "default.md"
         default_resume.write_text("# Default Resume\n- bullet\n")
-        monkeypatch.setattr(job_processor, "_DEFAULT_RESUME", default_resume)
+        monkeypatch.setattr(job_processor, "DEFAULT_RESUME", default_resume)
         with _Pipeline() as p:
             process_application(job_description="jd", company="Acme", role="Eng")
         assert p.tailor.call_args[0][0] == "# Default Resume\n- bullet\n"
@@ -236,6 +234,23 @@ class TestProcessApplication:
             )
         assert "**ML Engineer** |" in result.md_path.read_text()
 
+    def test_standalone_subtitle_role_is_stamped(self, tmp_path):
+        resume = _make_resume(tmp_path)
+        tailored = (
+            "# Jane Doe\n\n"
+            "**Data Analyst**\n\n"
+            "jane@example.com | 555-0100\n"
+        )
+        with _Pipeline(tailored=tailored):
+            result = process_application(
+                job_description="jd", company="Acme", role="ML Engineer",
+                resume_path=resume,
+            )
+        written = result.md_path.read_text()
+        assert "**ML Engineer**" in written
+        assert "**Data Analyst**" not in written
+        assert "jane@example.com" in written
+
     def test_dropped_skills_are_restored_before_export(self, tmp_path):
         master = "## Technical Skills\n\n- **Languages:** Python, R, SAS\n"
         resume = _make_resume(tmp_path, master)
@@ -297,7 +312,7 @@ class TestProcessApplication:
     def test_creates_output_dir_if_missing(self, tmp_path, monkeypatch):
         resume = _make_resume(tmp_path)
         nested_out = tmp_path / "nested" / "out"
-        monkeypatch.setattr(job_processor, "_OUTPUT_DIR", nested_out)
+        monkeypatch.setattr(job_processor, "OUTPUT_DIR", nested_out)
         with _Pipeline():
             process_application(
                 job_description="jd", company="Acme", role="Eng", resume_path=resume
@@ -305,7 +320,7 @@ class TestProcessApplication:
         assert nested_out.exists()
 
     def test_trim_loop_runs_when_overflow_detected(self, tmp_path):
-        """If get_page_count reports > 1 page, bullets should be trimmed."""
+        """If get_page_count reports more pages than the limit, bullets are trimmed."""
         resume = _make_resume(tmp_path)
         long_md = (
             "# Name\n\n"
@@ -316,9 +331,51 @@ class TestProcessApplication:
         # 2 pages on the first check, 1 page after the first trim
         with _Pipeline(tailored=long_md, pages=[2, 1]):
             result = process_application(
-                job_description="jd", company="Acme", role="Eng", resume_path=resume
+                job_description="jd",
+                company="Acme",
+                role="Eng",
+                resume_path=resume,
+                max_pages=1,
             )
         assert result.md_path.read_text().count("- ") < long_md.count("- ")
+
+    def test_two_page_limit_keeps_a_two_page_resume(self, tmp_path):
+        resume = _make_resume(tmp_path)
+        long_md = (
+            "# Name\n\n"
+            "## Projects\n\n"
+            "### Alpha\n\n- Alpha bullet one.\n- Alpha bullet two.\n\n"
+            "### Beta\n\n- Beta bullet one.\n- Beta bullet two.\n"
+        )
+        with _Pipeline(tailored=long_md, pages=2):
+            result = process_application(
+                job_description="jd",
+                company="Acme",
+                role="Eng",
+                resume_path=resume,
+                max_pages=2,
+            )
+        assert result.md_path.read_text().count("- ") == long_md.count("- ")
+
+    def test_page_limit_is_handed_to_the_tailor(self, tmp_path):
+        resume = _make_resume(tmp_path)
+        with _Pipeline() as p:
+            process_application(
+                job_description="jd",
+                company="Acme",
+                role="Eng",
+                resume_path=resume,
+                max_pages=3,
+            )
+        assert p.tailor.call_args.kwargs["max_pages"] == 3
+
+    def test_default_page_limit_is_two(self, tmp_path):
+        resume = _make_resume(tmp_path)
+        with _Pipeline() as p:
+            process_application(
+                job_description="jd", company="Acme", role="Eng", resume_path=resume
+            )
+        assert p.tailor.call_args.kwargs["max_pages"] == 2
 
 
 # ---------------------------------------------------------------------------
@@ -406,3 +463,40 @@ class TestTrimOneBullet:
         result = _trim_one_bullet(md)
         # No projects section and experience has < 4 bullets → nothing to trim
         assert result is None
+
+
+# ---------------------------------------------------------------------------
+# _ensure_page_limit
+# ---------------------------------------------------------------------------
+
+class TestEnsurePageLimit:
+    def test_returns_unchanged_when_within_limit(self):
+        md = "# Name\n\n- bullet\n"
+        with patch("job_processor.get_page_count", return_value=2):
+            assert _ensure_page_limit(md, 2) == md
+
+    def test_trims_when_over_limit(self):
+        with patch("job_processor.get_page_count", side_effect=[2, 1]):
+            result = _ensure_page_limit(_TWO_BULLET_PROJECTS, 1)
+        assert "Beta bullet two." not in result
+        assert "Beta bullet one." in result
+
+    def test_warns_when_nothing_left_to_trim(self, capsys):
+        md = "# Name\n\n## Education\n\n**UBC**\n"
+        with patch("job_processor.get_page_count", return_value=3):
+            result = _ensure_page_limit(md, 1)
+        assert result == md
+        out = capsys.readouterr().out
+        assert "could not trim further" in out
+        assert "1 page" in out
+
+    def test_warns_after_max_passes(self, capsys, monkeypatch):
+        monkeypatch.setattr(job_processor, "_MAX_TRIM_PASSES", 1)
+        with (
+            patch("job_processor.get_page_count", return_value=2),
+            patch("job_processor._trim_one_bullet", return_value="# trimmed\n"),
+        ):
+            _ensure_page_limit("# long\n", 1)
+        out = capsys.readouterr().out
+        assert "still 2 pages" in out
+        assert "limit 1" in out

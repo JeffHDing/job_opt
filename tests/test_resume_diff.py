@@ -1,13 +1,9 @@
 """
 Unit tests for resume_diff.py.
 """
-import sys
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from resume_diff import (
     NO_MASTER_MATCH,

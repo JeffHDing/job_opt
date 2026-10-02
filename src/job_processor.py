@@ -2,8 +2,8 @@
 job_processor.py — orchestrates the audit → tailor → fact-check pipeline.
 
 Everything the LLM does not do lives here: reading the master, persisting the
-audit report, stamping the header role, deduping, trimming to one page, and
-exporting the PDF.
+audit report, stamping the header role, deduping, trimming to the page limit,
+and exporting the PDF.
 """
 import re
 from dataclasses import dataclass
@@ -11,20 +11,23 @@ from datetime import date
 from pathlib import Path
 
 from audit import AuditReport, find_placeholders
+from config import (
+    AUDIT_DIR,
+    DEFAULT_MAX_PAGES,
+    DEFAULT_RESUME,
+    OUTPUT_DIR,
+    OUTPUT_STEM,
+    display_path,
+)
 from llm_client import audit_resume, fact_check, tailor_resume
-from pdf_exporter import generate_resume_pdf, get_page_count
+from pdf_exporter import generate_resume_pdf, get_page_count, pages_label
 from resume_diff import (
     dedupe_bullets,
     normalize_skill_rows,
     report_and_maybe_revert,
 )
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-_DEFAULT_RESUME = _PROJECT_ROOT / "data/masters/Jeffrey_Ding_CV.md"
-_OUTPUT_DIR = _PROJECT_ROOT / "data/tailored_outputs"
-_AUDIT_DIR = _PROJECT_ROOT / "data/audit_reports"
-
-_MAX_TRIM_PASSES = 8
+_MAX_TRIM_PASSES = 16
 
 
 @dataclass
@@ -58,15 +61,21 @@ def _find_section_bounds(lines: list[str], header_pattern: str) -> tuple[int, in
     return start, len(lines)
 
 
+# Where to take a bullet from, in order of preference, and the floor each entry
+# keeps: a project may be cut to one bullet, an experience entry to three, so
+# trimming never reduces an entry to a bare heading.
+_BULLET_TRIM_ORDER = (
+    ('Projects', 2),
+    ('Experience', 4),
+)
+
+
 def _trim_one_bullet(markdown_text: str) -> str | None:
     """
     Remove one bullet to reduce content length, targeting the least-important
-    positions first:
-
-    Pass order:
-      1. Last bullet of the last project entry that has ≥ 2 bullets.
-      2. Last bullet of the last experience entry that has ≥ 4 bullets.
-      3. Remove the entire last project entry (h3 + its bullets).
+    positions first: _BULLET_TRIM_ORDER decides which section gives one up, and
+    once no entry there can spare a bullet the last project entry goes entirely,
+    heading and all.
 
     Returns the trimmed markdown string, or None if nothing could be removed.
     """
@@ -92,30 +101,21 @@ def _trim_one_bullet(markdown_text: str) -> str | None:
         return entries
 
     # ------------------------------------------------------------------ #
-    # 1. Last project entry with ≥ 2 bullets → drop its last bullet       #
+    # 1-2. Last bullet of the last entry that can spare one               #
     # ------------------------------------------------------------------ #
-    proj_start, proj_end = _find_section_bounds(lines, 'Projects')
-    if proj_start != -1:
-        proj_entries = entries_in_section(proj_start, proj_end)
-        for h3_idx, bullets in reversed(proj_entries):
-            if len(bullets) >= 2:
-                drop = bullets[-1]
-                return '\n'.join(lines[:drop] + lines[drop + 1:])
-
-    # ------------------------------------------------------------------ #
-    # 2. Last experience entry with ≥ 4 bullets → drop its last bullet    #
-    # ------------------------------------------------------------------ #
-    exp_start, exp_end = _find_section_bounds(lines, 'Experience')
-    if exp_start != -1:
-        exp_entries = entries_in_section(exp_start, exp_end)
-        for h3_idx, bullets in reversed(exp_entries):
-            if len(bullets) >= 4:
+    for header, min_bullets in _BULLET_TRIM_ORDER:
+        start, end = _find_section_bounds(lines, header)
+        if start == -1:
+            continue
+        for _, bullets in reversed(entries_in_section(start, end)):
+            if len(bullets) >= min_bullets:
                 drop = bullets[-1]
                 return '\n'.join(lines[:drop] + lines[drop + 1:])
 
     # ------------------------------------------------------------------ #
     # 3. Remove the entire last project entry (h3 block)                  #
     # ------------------------------------------------------------------ #
+    proj_start, proj_end = _find_section_bounds(lines, 'Projects')
     if proj_start != -1:
         proj_entries = entries_in_section(proj_start, proj_end)
         if proj_entries:
@@ -143,11 +143,14 @@ def _trim_one_bullet(markdown_text: str) -> str | None:
 
 def _set_header_role(markdown_text: str, role: str) -> str:
     """
-    Replace the bolded role title in the resume header (the line containing
-    the phone/email contact info) with *role* from the job description.
+    Replace the bolded role title in the resume header with *role* from the
+    job description.
 
-    The header line looks like:
+    Two header shapes are recognised, matching both the one-line contact
+    block and the academic CV (name / title / contact on separate lines):
+
         **Data Scientist** | 647-... | ...
+        **Data Scientist**
 
     The tailor is told to leave this line alone so that any change it makes is
     caught by the fact-check; stamping it here instead keeps the title matching
@@ -155,54 +158,70 @@ def _set_header_role(markdown_text: str, role: str) -> str:
     """
     display_role = role.replace("_", " ")
 
-    def _replace(m: re.Match) -> str:
+    def _replace_piped(m: re.Match) -> str:
         return f"**{display_role}**{m.group(1)}"
 
-    # Match **<anything>** followed by a pipe separator on the same line
-    return re.sub(r'\*\*[^*]+\*\*(\s*\|)', _replace, markdown_text, count=1)
+    updated = re.sub(
+        r'\*\*[^*]+\*\*(\s*\|)', _replace_piped, markdown_text, count=1
+    )
+    if updated != markdown_text:
+        return updated
+
+    def _replace_subtitle(m: re.Match) -> str:
+        return f"{m.group(1)}**{display_role}**{m.group(2)}"
+
+    return re.sub(
+        r'^(# [^\n]+\n+)\*\*[^*]+\*\*([ \t]*)$',
+        _replace_subtitle,
+        markdown_text,
+        count=1,
+        flags=re.MULTILINE,
+    )
 
 
-def _ensure_one_page(markdown_text: str) -> str:
+def _ensure_page_limit(markdown_text: str, max_pages: int) -> str:
     """
     Iteratively trim bullets from the tailored markdown until the rendered
-    PDF fits on exactly one page, up to _MAX_TRIM_PASSES attempts.
+    PDF fits in *max_pages*, up to _MAX_TRIM_PASSES attempts.
     """
     for pass_num in range(1, _MAX_TRIM_PASSES + 1):
         pages = get_page_count(markdown_text)
-        if pages <= 1:
+        if pages <= max_pages:
             if pass_num > 1:
-                print(f"  Trimmed to 1 page after {pass_num - 1} pass(es).")
+                print(
+                    f"  Trimmed to {pages_label(pages)} after "
+                    f"{pass_num - 1} pass(es)."
+                )
             return markdown_text
 
         print(
-            f"  Page overflow ({pages} pages) — trimming pass"
-            f" {pass_num}/{_MAX_TRIM_PASSES}...",
+            f"  Page overflow ({pages_label(pages)}, limit {max_pages}) — "
+            f"trimming pass {pass_num}/{_MAX_TRIM_PASSES}...",
             flush=True,
         )
         trimmed = _trim_one_bullet(markdown_text)
         if trimmed is None:
-            print("  Warning: could not trim further; PDF may exceed one page.")
+            print(
+                "  Warning: could not trim further; PDF may exceed "
+                f"{pages_label(max_pages)}."
+            )
             return markdown_text
         markdown_text = trimmed
 
     pages = get_page_count(markdown_text)
-    if pages > 1:
-        print(f"  Warning: still {pages} pages after {_MAX_TRIM_PASSES} trim passes.")
+    if pages > max_pages:
+        print(
+            f"  Warning: still {pages_label(pages)} after {_MAX_TRIM_PASSES} "
+            f"trim passes (limit {max_pages})."
+        )
     return markdown_text
 
 
 def _read_master(resume_path: Path | None) -> str:
-    resume_path = Path(resume_path) if resume_path else _DEFAULT_RESUME
+    resume_path = Path(resume_path) if resume_path else DEFAULT_RESUME
     if not resume_path.exists():
         raise FileNotFoundError(f"resume not found: {resume_path}")
     return resume_path.read_text()
-
-
-def _display(path: Path) -> Path:
-    try:
-        return path.relative_to(_PROJECT_ROOT)
-    except ValueError:
-        return path
 
 
 def run_audit(
@@ -226,11 +245,11 @@ def run_audit(
     if audit.skipped:
         return audit, None
 
-    _AUDIT_DIR.mkdir(parents=True, exist_ok=True)
+    AUDIT_DIR.mkdir(parents=True, exist_ok=True)
     stamp = date.today().strftime("%Y%m%d")
-    audit_path = _AUDIT_DIR / f"{stamp}_{_slug(company)}_{_slug(role)}_ats_audit.md"
+    audit_path = AUDIT_DIR / f"{stamp}_{_slug(company)}_{_slug(role)}_ats_audit.md"
     audit_path.write_text(audit.markdown)
-    print(f"   Audit report → {_display(audit_path)}")
+    print(f"   Audit report → {display_path(audit_path)}")
 
     return audit, audit_path
 
@@ -243,9 +262,10 @@ def process_application(
     audit: bool = True,
     factcheck: bool = True,
     export_pdf: bool = True,
+    max_pages: int = DEFAULT_MAX_PAGES,
 ) -> ApplicationResult:
     """
-    Full pipeline: audit → tailor → fact-check → trim to one page → export PDF.
+    Full pipeline: audit → tailor → fact-check → trim to *max_pages* → export PDF.
 
     Raises FileNotFoundError if resume_path doesn't exist — callers (e.g.
     main.py) are responsible for turning that into a user-facing CLI error.
@@ -267,7 +287,9 @@ def process_application(
         else ""
     )
     print(f"Stage 2/3 — tailoring resume{directive_note}...", flush=True)
-    tailored_md = tailor_resume(master_md, job_description, audit=result.audit)
+    tailored_md = tailor_resume(
+        master_md, job_description, audit=result.audit, max_pages=max_pages
+    )
 
     # 3. Fact-check, then let the user revert anything flagged
     if factcheck:
@@ -284,22 +306,22 @@ def process_application(
         )
 
     # 4. Post-process: stamp the job title, put back dropped keywords, drop
-    #    repeats, fit one page
+    #    repeats, fit the page limit
     tailored_md = _set_header_role(tailored_md, role)
     tailored_md = normalize_skill_rows(master_md, tailored_md)
     tailored_md = dedupe_bullets(tailored_md)
-    tailored_md = _ensure_one_page(tailored_md)
+    tailored_md = _ensure_page_limit(tailored_md, max_pages)
 
     # 5. Write outputs
-    stem = f"Jeffrey_Ding_CV_{_slug(role)}"
-    _OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    stem = f"{OUTPUT_STEM}_{_slug(role)}"
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    result.md_path = _OUTPUT_DIR / f"{stem}.md"
+    result.md_path = OUTPUT_DIR / f"{stem}.md"
     result.md_path.write_text(tailored_md)
-    print(f"\nMarkdown saved → {_display(result.md_path)}")
+    print(f"\nMarkdown saved → {display_path(result.md_path)}")
 
     if export_pdf:
-        result.pdf_path = _OUTPUT_DIR / f"{stem}.pdf"
+        result.pdf_path = OUTPUT_DIR / f"{stem}.pdf"
         generate_resume_pdf(tailored_md, str(result.pdf_path))
 
     return result

@@ -15,7 +15,6 @@ Stage 2 raises, because there is no output without it.
 import json
 import os
 import time
-from pathlib import Path
 from typing import Any, Callable
 
 from dotenv import load_dotenv
@@ -24,6 +23,7 @@ from google.genai import types
 from google.genai.errors import ClientError, ServerError
 
 from audit import AuditReport, parse_audit_report
+from config import DEFAULT_MAX_PAGES, PROJECT_ROOT, PROMPTS_DIR
 from resume_diff import (
     ResumeChange,
     ValidationResult,
@@ -31,10 +31,7 @@ from resume_diff import (
     find_unsupported_skills,
 )
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-load_dotenv(_PROJECT_ROOT / ".env")
-
-_PROMPTS_DIR = _PROJECT_ROOT / "prompts"
+load_dotenv(PROJECT_ROOT / ".env")
 
 # ---------------------------------------------------------------------------
 # Client
@@ -98,13 +95,55 @@ def _with_retry(fn: Callable[[], Any]) -> Any:
 # fact-check run costs 3 requests → ~165 applications/day. Skipping the audit
 # (--no-audit) or the fact-check (--no-factcheck) drops that to 2.
 
-_AUDITOR_MODEL   = "gemini-3.5-flash-lite"
-_TAILOR_MODEL    = "gemini-3.5-flash-lite"
-_FACTCHECK_MODEL = "gemini-3.5-flash-lite"
+_MODEL = "gemini-3.5-flash-lite"
 
-_AUDITOR_SYSTEM_PROMPT   = (_PROMPTS_DIR / "auditor_system.txt").read_text()
-_TAILOR_SYSTEM_PROMPT    = (_PROMPTS_DIR / "tailor_system.txt").read_text()
-_FACTCHECK_SYSTEM_PROMPT = (_PROMPTS_DIR / "factcheck_system.txt").read_text()
+# Per-stage overrides. The auditor does the most reasoning and is the one worth
+# pointing at a stronger model if you have the quota.
+_AUDITOR_MODEL   = _MODEL
+_TAILOR_MODEL    = _MODEL
+_FACTCHECK_MODEL = _MODEL
+
+_MAX_OUTPUT_TOKENS = 8192
+
+_AUDITOR_SYSTEM_PROMPT   = (PROMPTS_DIR / "auditor_system.txt").read_text()
+_TAILOR_SYSTEM_PROMPT    = (PROMPTS_DIR / "tailor_system.txt").read_text()
+_FACTCHECK_SYSTEM_PROMPT = (PROMPTS_DIR / "factcheck_system.txt").read_text()
+
+
+def _generate(
+    model: str,
+    system_instruction: str,
+    contents: str,
+    temperature: float,
+    **config: Any,
+) -> str:
+    """Run one Gemini call, with retries, and return the stripped response text."""
+    response = _with_retry(lambda: _get_client().models.generate_content(
+        model=model,
+        config=types.GenerateContentConfig(
+            system_instruction=system_instruction,
+            temperature=temperature,
+            max_output_tokens=_MAX_OUTPUT_TOKENS,
+            **config,
+        ),
+        contents=contents,
+    ))
+    return response.text.strip()
+
+
+def _tailor_page_budget(max_pages: int) -> dict[str, int]:
+    """Scale the tailor's content caps with the requested page limit."""
+    return {
+        "max_pages": max_pages,
+        "max_exp_roles": 2 + max_pages,
+        "max_exp_bullets": 3 + max_pages,
+        "max_projects": 5 * max_pages,
+        "max_bullets": 20 * max_pages,
+    }
+
+
+def _tailor_system_prompt(max_pages: int) -> str:
+    return _TAILOR_SYSTEM_PROMPT.format(**_tailor_page_budget(max_pages))
 
 
 def _resume_and_jd(master_resume_md: str, job_description: str) -> str:
@@ -130,16 +169,13 @@ def audit_resume(master_resume_md: str, job_description: str) -> AuditReport:
     the pipeline can fall back to untargeted tailoring.
     """
     try:
-        response = _with_retry(lambda: _get_client().models.generate_content(
+        markdown = _generate(
             model=_AUDITOR_MODEL,
-            config=types.GenerateContentConfig(
-                system_instruction=_AUDITOR_SYSTEM_PROMPT,
-                # The rubric is meant to be reproducible run to run.
-                temperature=0.1,
-                max_output_tokens=8192,
-            ),
+            system_instruction=_AUDITOR_SYSTEM_PROMPT,
             contents=_resume_and_jd(master_resume_md, job_description),
-        ))
+            # The rubric is meant to be reproducible run to run.
+            temperature=0.1,
+        )
     except Exception as exc:
         return AuditReport(
             markdown="",
@@ -147,7 +183,7 @@ def audit_resume(master_resume_md: str, job_description: str) -> AuditReport:
             skip_reason=f"{type(exc).__name__}: {exc}",
         )
 
-    return parse_audit_report(response.text.strip())
+    return parse_audit_report(markdown)
 
 
 # ---------------------------------------------------------------------------
@@ -158,29 +194,27 @@ def tailor_resume(
     master_resume_md: str,
     job_description: str,
     audit: AuditReport | None = None,
+    max_pages: int = DEFAULT_MAX_PAGES,
 ) -> str:
     """
     Rewrite the master resume for the job description and return the Markdown.
 
     When *audit* carries a usable report it is appended to the prompt, and the
     tailor works from its directives instead of inferring priorities on its own.
+    *max_pages* is injected into the system prompt so the rewrite targets the
+    same page budget the PDF trimmer will enforce.
     """
     user_message = _resume_and_jd(master_resume_md, job_description)
 
     if audit is not None and audit.markdown and not audit.skipped:
         user_message += f"\n\n## ATS Audit\n\n{audit.markdown.strip()}"
 
-    response = _with_retry(lambda: _get_client().models.generate_content(
+    return _generate(
         model=_TAILOR_MODEL,
-        config=types.GenerateContentConfig(
-            system_instruction=_TAILOR_SYSTEM_PROMPT,
-            temperature=0.3,
-            max_output_tokens=8192,
-        ),
+        system_instruction=_tailor_system_prompt(max_pages),
         contents=user_message,
-    ))
-
-    return response.text.strip()
+        temperature=0.3,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -228,20 +262,16 @@ def fact_check(
         return ValidationResult(passed=True, reviewed=0)
 
     try:
-        response = _with_retry(lambda: _get_client().models.generate_content(
+        verdicts: list[dict] = json.loads(_generate(
             model=_FACTCHECK_MODEL,
-            config=types.GenerateContentConfig(
-                system_instruction=_FACTCHECK_SYSTEM_PROMPT,
-                temperature=0.0,
-                max_output_tokens=8192,
-                response_mime_type="application/json",
-                response_schema=_FACTCHECK_SCHEMA,
-            ),
+            system_instruction=_FACTCHECK_SYSTEM_PROMPT,
             contents=_factcheck_message(
                 master_resume_md, job_description, changes
             ),
+            temperature=0.0,
+            response_mime_type="application/json",
+            response_schema=_FACTCHECK_SCHEMA,
         ))
-        verdicts: list[dict] = json.loads(response.text)
     except json.JSONDecodeError as exc:
         return _skipped(
             changes, padded_skills,
@@ -291,10 +321,7 @@ def _factcheck_message(
         for i, c in enumerate(changes, 1)
     ]
     return (
-        "## Master Resume\n\n"
-        f"{master_resume_md.strip()}\n\n"
-        "## Job Description\n\n"
-        f"{job_description.strip()}\n\n"
+        f"{_resume_and_jd(master_resume_md, job_description)}\n\n"
         "## Edits to Review\n\n"
         + "\n\n".join(items)
     )

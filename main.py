@@ -15,10 +15,13 @@ import pyperclip
 # on sys.path before any src module is imported.
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
+from config import (  # noqa: E402
+    DEFAULT_MAX_PAGES,
+    DEFAULT_RESUME,
+    display_path,
+)
 from job_processor import process_application, run_audit  # noqa: E402
 
-_PROJECT_ROOT = Path(__file__).parent
-_DEFAULT_RESUME = _PROJECT_ROOT / "data/masters/Jeffrey_Ding_CV.md"
 _CLIPBOARD_PREVIEW_LENGTH = 300
 
 
@@ -77,9 +80,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--resume",
         type=Path,
-        default=_DEFAULT_RESUME,
+        default=DEFAULT_RESUME,
         metavar="FILE",
-        help=f"Master resume Markdown (default: {_DEFAULT_RESUME.name})",
+        help=f"Master resume Markdown (default: {DEFAULT_RESUME.name})",
     )
     parser.add_argument(
         "--audit-only",
@@ -101,6 +104,16 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Write the tailored Markdown only, skipping PDF export",
     )
+    parser.add_argument(
+        "--pages", "-p",
+        type=int,
+        default=DEFAULT_MAX_PAGES,
+        metavar="N",
+        help=(
+            f"Maximum PDF pages (default: {DEFAULT_MAX_PAGES}). "
+            "Least-relevant bullets are trimmed to fit."
+        ),
+    )
     return parser
 
 
@@ -121,6 +134,8 @@ def main() -> None:
 
     if args.audit_only and args.no_audit:
         parser.error("--audit-only and --no-audit are mutually exclusive")
+    if args.pages < 1:
+        parser.error("--pages must be at least 1")
 
     if args.company is None:
         args.company = input("Company: ").strip()
@@ -160,17 +175,14 @@ def main() -> None:
             audit=not args.no_audit,
             factcheck=not args.no_factcheck,
             export_pdf=not args.no_pdf,
+            max_pages=args.pages,
         )
     except FileNotFoundError as exc:
         print(f"error: {exc}", file=sys.stderr)
         sys.exit(1)
 
     final = result.pdf_path or result.md_path
-    try:
-        final = final.relative_to(_PROJECT_ROOT)
-    except ValueError:
-        pass
-    print(f"\nDone!  {final}")
+    print(f"\nDone!  {display_path(final)}")
 
 
 if __name__ == "__main__":
