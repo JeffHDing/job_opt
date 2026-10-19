@@ -15,13 +15,14 @@ import pyperclip
 # on sys.path before any src module is imported.
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
-from config import (  # noqa: E402
+from job_processor import (  # noqa: E402
     DEFAULT_MAX_PAGES,
-    DEFAULT_RESUME,
-    display_path,
+    process_application,
+    run_audit,
 )
-from job_processor import process_application, run_audit  # noqa: E402
 
+_PROJECT_ROOT = Path(__file__).parent
+_DEFAULT_RESUME = _PROJECT_ROOT / "data/masters/Jeffrey_Ding_CV.md"
 _CLIPBOARD_PREVIEW_LENGTH = 300
 
 
@@ -80,9 +81,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--resume",
         type=Path,
-        default=DEFAULT_RESUME,
+        default=_DEFAULT_RESUME,
         metavar="FILE",
-        help=f"Master resume Markdown (default: {DEFAULT_RESUME.name})",
+        help=f"Master resume Markdown (default: {_DEFAULT_RESUME.name})",
     )
     parser.add_argument(
         "--audit-only",
@@ -113,16 +114,6 @@ def _build_parser() -> argparse.ArgumentParser:
             f"Maximum PDF pages (default: {DEFAULT_MAX_PAGES}). "
             "Least-relevant bullets are trimmed to fit."
         ),
-    )
-    parser.add_argument(
-        "--cover-letter",
-        action="store_true",
-        help="Generate a draft cover letter after the tailored resume",
-    )
-    parser.add_argument(
-        "--interview-prep",
-        action="store_true",
-        help="Generate draft interview preparation after the tailored resume",
     )
     return parser
 
@@ -186,15 +177,17 @@ def main() -> None:
             factcheck=not args.no_factcheck,
             export_pdf=not args.no_pdf,
             max_pages=args.pages,
-            generate_cover=args.cover_letter,
-            generate_interview=args.interview_prep,
         )
     except FileNotFoundError as exc:
         print(f"error: {exc}", file=sys.stderr)
         sys.exit(1)
 
     final = result.pdf_path or result.md_path
-    print(f"\nDone!  {display_path(final)}")
+    try:
+        final = final.relative_to(_PROJECT_ROOT)
+    except ValueError:
+        pass
+    print(f"\nDone!  {final}")
 
 
 if __name__ == "__main__":
