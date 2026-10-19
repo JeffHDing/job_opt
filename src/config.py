@@ -14,6 +14,8 @@ DATA_DIR = PROJECT_ROOT / "data"
 DEFAULT_RESUME = DATA_DIR / "masters" / "Jeffrey_Ding_CV.md"
 OUTPUT_DIR = DATA_DIR / "tailored_outputs"
 AUDIT_DIR = DATA_DIR / "audit_reports"
+APPLICATIONS_FILE = DATA_DIR / "applications.json"
+RUN_LOG_FILE = DATA_DIR / "run_log.jsonl"
 
 # Tailored outputs are named "<stem>_<Role>.md" / ".pdf".
 OUTPUT_STEM = DEFAULT_RESUME.stem

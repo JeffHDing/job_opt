@@ -51,6 +51,52 @@ Stages 1 and 3 degrade rather than fail: a transient API error marks them skippe
 
 ---
 
+## Career Ops application package
+
+Each full run also creates a structured local application record in
+`data/applications.json`. The record tracks the company, role, job description,
+master resume, lifecycle status, approval state, stage state, scores, and links
+to generated artifacts. It is a local tracker; the application is never
+submitted automatically.
+
+The tailored output directory contains machine-readable review artifacts in
+addition to the Markdown and optional PDF:
+
+| Artifact | Purpose |
+|---|---|
+| `*_audit.json` | Validated audit scores, reachability, directives, and skip state |
+| `*_fact_check.json` | Fact-check verdict, reviewed edits, violations, and skip state |
+| `*_evidence.json` | Directive-to-master evidence matrix |
+| `*_review.json` | Approval state, score summary, fact-check summary, and human-review requirement |
+| `*_package.json` | Application package manifest and artifact paths |
+| `run_log.jsonl` | Timestamped model, prompt-version, token, and estimated-cost events |
+
+The fact-check review remains human-in-the-loop. Generated cover letters and
+interview preparation are drafts only and require review before use; no stage
+sends email, submits an application, or contacts an employer.
+
+### Optional draft stages
+
+```bash
+# Generate a tailored resume plus a draft cover letter
+python main.py -c Stripe -r "Data Scientist" \
+               -j data/job_descriptions/stripe_ds.txt --cover-letter
+
+# Generate a tailored resume plus interview preparation
+python main.py -c Stripe -r "Data Scientist" \
+               -j data/job_descriptions/stripe_ds.txt --interview-prep
+
+# Generate both optional drafts
+python main.py -c Stripe -r "Data Scientist" \
+               -j data/job_descriptions/stripe_ds.txt \
+               --cover-letter --interview-prep
+```
+
+These optional calls use the same master-resume evidence boundary as the
+core pipeline and are not generated unless their flags are supplied.
+
+---
+
 ## Repository structure
 
 ```
@@ -62,7 +108,11 @@ job_opt/
 │   ├── llm_client.py                # The three Gemini agents
 │   ├── audit.py                     # Audit report parsing (scores, directives)
 │   ├── resume_diff.py               # Bullet/line parsing, diffing, revert, integrity checks
-│   └── pdf_exporter.py              # Markdown → WeasyPrint PDF + page-count helper
+│   ├── pdf_exporter.py              # Markdown → WeasyPrint PDF + page-count helper
+│   ├── application_record.py         # Local application tracker and lifecycle state
+│   ├── evidence.py                   # Evidence matrix and review-summary artifacts
+│   ├── optional_stages.py            # Draft-only optional-stage wrapper
+│   └── run_logging.py                # Local JSONL run and cost logging
 ├── prompts/
 │   ├── auditor_system.txt           # Stage 1: ATS scoring + tailoring directives
 │   ├── tailor_system.txt            # Stage 2: directive-driven rewriting
@@ -71,7 +121,9 @@ job_opt/
 │   ├── masters/                     # Master resumes (source of truth)
 │   ├── job_descriptions/            # Job description text files
 │   ├── audit_reports/               # Generated ATS audits (gitignored)
-│   └── tailored_outputs/            # Generated .md/.pdf (gitignored)
+│   ├── tailored_outputs/            # Generated package artifacts (gitignored)
+│   ├── applications.json            # Structured application tracker (gitignored)
+│   └── run_log.jsonl                # Model invocation log (gitignored)
 ├── tests/
 ├── environment.yml                  # Conda environment spec; defers to requirements-dev.txt
 ├── requirements-dev.txt             # The dependency list, used by Conda, pip, and CI
@@ -194,6 +246,8 @@ python main.py -c Stripe -r "Data Scientist" --pages 1
 | `--no-factcheck` | | off | Skip stage 3 |
 | `--no-pdf` | | off | Write Markdown only |
 | `--pages` | `-p` | `2` | Maximum PDF pages; least-relevant bullets are trimmed to fit |
+| `--cover-letter` | | off | Generate a draft cover letter |
+| `--interview-prep` | | off | Generate draft interview preparation |
 
 Outputs land in `data/tailored_outputs/Jeffrey_Ding_CV_{Role}.md` and `.pdf`.
 

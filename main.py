@@ -114,6 +114,16 @@ def _build_parser() -> argparse.ArgumentParser:
             "Least-relevant bullets are trimmed to fit."
         ),
     )
+    parser.add_argument(
+        "--cover-letter",
+        action="store_true",
+        help="Generate a draft cover letter after the tailored resume",
+    )
+    parser.add_argument(
+        "--interview-prep",
+        action="store_true",
+        help="Generate draft interview preparation after the tailored resume",
+    )
     return parser
 
 
@@ -176,6 +186,8 @@ def main() -> None:
             factcheck=not args.no_factcheck,
             export_pdf=not args.no_pdf,
             max_pages=args.pages,
+            generate_cover=args.cover_letter,
+            generate_interview=args.interview_prep,
         )
     except FileNotFoundError as exc:
         print(f"error: {exc}", file=sys.stderr)

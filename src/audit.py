@@ -47,6 +47,18 @@ class AuditReport:
     skipped: bool = False
     skip_reason: str = ""
 
+    def to_dict(self) -> dict[str, object]:
+        """Return the validated, serializable audit contract."""
+        return {
+            "markdown": self.markdown,
+            "current_score": self.current_score,
+            "projected_score": self.projected_score,
+            "reachable": self.reachable,
+            "directives": list(self.directives),
+            "skipped": self.skipped,
+            "skip_reason": self.skip_reason,
+        }
+
     @property
     def target_reachable(self) -> bool | None:
         """
