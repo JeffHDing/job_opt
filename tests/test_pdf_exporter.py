@@ -80,9 +80,9 @@ class TestGetPageCount:
 
 
 class TestResumeCss:
-    def test_body_is_times_new_roman_at_12pt(self):
+    def test_body_is_times_new_roman_at_readable_compact_size(self):
         assert "Times New Roman" in _RESUME_CSS
-        assert "font-size: 12pt;" in _RESUME_CSS
+        assert "font-size: 10.5pt;" in _RESUME_CSS
         assert "Arial" not in _RESUME_CSS
         assert "Helvetica" not in _RESUME_CSS
 

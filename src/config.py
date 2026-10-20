@@ -21,7 +21,7 @@ RUN_LOG_FILE = DATA_DIR / "run_log.jsonl"
 OUTPUT_STEM = DEFAULT_RESUME.stem
 
 # The page budget the tailor writes to and the PDF trimmer enforces.
-DEFAULT_MAX_PAGES = 1
+DEFAULT_MAX_PAGES = 2
 
 
 def display_path(path: Path) -> Path:

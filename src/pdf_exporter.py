@@ -18,7 +18,7 @@ _RESUME_CSS = """
 }
 body {
     font-family: "Times New Roman", Times, "Liberation Serif", serif;
-    font-size: 12pt;
+    font-size: 10.5pt;
     color: #000000;
     line-height: 1.15;
 }
@@ -42,13 +42,14 @@ h1 + p strong {
 /* Contact line is the second <p> after h1 */
 h1 + p + p {
     text-align: center;
+    font-size: 10pt;
     margin: 0 0 8px 0;
 }
 h1 + p + p a {
     color: #0563C1;
 }
 h2 {
-    font-size: 12pt;
+    font-size: 11.5pt;
     font-weight: bold;
     text-transform: uppercase;
     letter-spacing: 0.12em;
@@ -58,7 +59,7 @@ h2 {
     page-break-after: avoid;
 }
 h3 {
-    font-size: 12pt;
+    font-size: 10.5pt;
     font-weight: bold;
     margin: 8px 0 1px 0;
     page-break-after: avoid;
@@ -241,7 +242,7 @@ def generate_resume_pdf(markdown_text: str, output_path: str) -> int:
     Markdown encodes structure (headings, lists); CSS encodes the physical
     constraints:
       - 0.5 in vertical / 0.6 in horizontal margins
-      - 12 pt Times New Roman body, matching a conventional academic CV
+      - 10.5 pt Times New Roman body, matching a readable, space-conscious CV
       - dates and locations are right-aligned on entry header rows
       - page-break-inside: avoid keeps each role/project block intact
       - no floats, columns, or images — purely linear text flow
