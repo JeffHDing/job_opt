@@ -369,13 +369,13 @@ class TestProcessApplication:
             )
         assert p.tailor.call_args.kwargs["max_pages"] == 3
 
-    def test_default_page_limit_is_two(self, tmp_path):
+    def test_default_page_limit_is_one(self, tmp_path):
         resume = _make_resume(tmp_path)
         with _Pipeline() as p:
             process_application(
                 job_description="jd", company="Acme", role="Eng", resume_path=resume
             )
-        assert p.tailor.call_args.kwargs["max_pages"] == 2
+        assert p.tailor.call_args.kwargs["max_pages"] == 1
 
 
 # ---------------------------------------------------------------------------
