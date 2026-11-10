@@ -54,6 +54,16 @@ class ValidationResult:
     skipped: bool = False
     skip_reason: str = ""
 
+    def to_dict(self) -> dict[str, object]:
+        """Return the validated fact-check contract for persistence."""
+        return {
+            "passed": self.passed,
+            "violations": list(self.violations),
+            "reviewed": self.reviewed,
+            "skipped": self.skipped,
+            "skip_reason": self.skip_reason,
+        }
+
     @property
     def major_violations(self) -> list[dict]:
         return [v for v in self.violations if v.get("severity") == "major"]

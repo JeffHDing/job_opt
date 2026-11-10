@@ -215,8 +215,8 @@ class TestTailorResume:
         kwargs = client.models.generate_content.call_args.kwargs
         assert kwargs["model"] == llm_client._TAILOR_MODEL
         instruction = kwargs["config"].system_instruction
-        assert "12 pt Times New Roman" in instruction
-        assert "2-page limit" in instruction
+        assert "10.5 pt Times New Roman" in instruction
+        assert "1-page limit" in instruction
 
     def test_page_limit_is_injected_into_the_prompt(self):
         client, patcher = _patch_client("# Tailored")
@@ -251,7 +251,7 @@ class TestTailorPageBudget:
         prompt = _tailor_system_prompt(2)
         assert "{" not in prompt
         assert "2-page limit" in prompt
-        assert "12 pt Times New Roman" in prompt
+        assert "10.5 pt Times New Roman" in prompt
 
     def test_audit_report_is_appended_to_the_prompt(self):
         client, patcher = _patch_client("# Tailored")

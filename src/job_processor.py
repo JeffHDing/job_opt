@@ -10,8 +10,10 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
+from application_record import ApplicationRecord, ApplicationStore
 from audit import AuditReport, find_placeholders
 from config import (
+    APPLICATIONS_FILE,
     AUDIT_DIR,
     DEFAULT_MAX_PAGES,
     DEFAULT_RESUME,
@@ -19,9 +21,17 @@ from config import (
     OUTPUT_STEM,
     display_path,
 )
-from llm_client import audit_resume, fact_check, tailor_resume
+from evidence import build_evidence_matrix, build_review_summary, write_json
+from llm_client import (
+    audit_resume,
+    fact_check,
+    generate_cover_letter,
+    generate_interview_prep,
+    tailor_resume,
+)
 from pdf_exporter import generate_resume_pdf, get_page_count, pages_label
 from resume_diff import (
+    ValidationResult,
     dedupe_bullets,
     normalize_skill_rows,
     report_and_maybe_revert,
@@ -38,6 +48,8 @@ class ApplicationResult:
     audit_path: Path | None = None
     md_path: Path | None = None
     pdf_path: Path | None = None
+    application_id: str | None = None
+    package_manifest: Path | None = None
 
 
 def _slug(text: str) -> str:
@@ -263,6 +275,8 @@ def process_application(
     factcheck: bool = True,
     export_pdf: bool = True,
     max_pages: int = DEFAULT_MAX_PAGES,
+    generate_cover: bool = False,
+    generate_interview: bool = False,
 ) -> ApplicationResult:
     """
     Full pipeline: audit → tailor → fact-check → trim to *max_pages* → export PDF.
@@ -272,6 +286,16 @@ def process_application(
     """
     master_md = _read_master(resume_path)
     result = ApplicationResult()
+    record = ApplicationRecord(
+        company=company,
+        role=role,
+        job_description=job_description,
+        resume_path=str(resume_path or DEFAULT_RESUME),
+        status="review",
+        stage_states={"audit": "pending", "tailor": "pending", "fact_check": "pending"},
+    )
+    ApplicationStore(APPLICATIONS_FILE).upsert(record)
+    result.application_id = record.id
 
     # 1. Audit
     if audit:
@@ -279,6 +303,15 @@ def process_application(
             job_description, company, role, resume_path
         )
         print()
+        record.stage_states["audit"] = "skipped" if result.audit.skipped else "complete"
+        if result.audit and not result.audit.skipped:
+            record.scores.update({
+                "current": result.audit.current_score,
+                "projected": result.audit.projected_score,
+            })
+            audit_json = AUDIT_DIR / f"{record.id}_audit.json"
+            write_json(audit_json, result.audit.to_dict())
+            record.artifacts["audit_json"] = str(audit_json)
 
     # 2. Tailor
     directive_note = (
@@ -290,12 +323,19 @@ def process_application(
     tailored_md = tailor_resume(
         master_md, job_description, audit=result.audit, max_pages=max_pages
     )
+    record.stage_states["tailor"] = "complete"
 
     # 3. Fact-check, then let the user revert anything flagged
+    validation = ValidationResult(passed=True, reviewed=0)
     if factcheck:
         print("\nStage 3/3 — fact-checking against the master resume...", flush=True)
         validation = fact_check(master_md, tailored_md, job_description)
         tailored_md = report_and_maybe_revert(tailored_md, validation)
+        record.stage_states["fact_check"] = (
+            "skipped" if validation.skipped else "complete"
+        )
+    else:
+        record.stage_states["fact_check"] = "disabled"
 
     placeholders = find_placeholders(tailored_md)
     if placeholders:
@@ -323,5 +363,61 @@ def process_application(
     if export_pdf:
         result.pdf_path = OUTPUT_DIR / f"{stem}.pdf"
         generate_resume_pdf(tailored_md, str(result.pdf_path))
+
+    if generate_cover:
+        cover_path = OUTPUT_DIR / f"{stem}_cover_letter.md"
+        cover_path.write_text(generate_cover_letter(
+            master_md, job_description, tailored_md
+        ))
+        record.artifacts["cover_letter"] = str(cover_path)
+    if generate_interview:
+        prep_path = OUTPUT_DIR / f"{stem}_interview_prep.md"
+        prep_path.write_text(generate_interview_prep(
+            master_md, job_description, tailored_md
+        ))
+        record.artifacts["interview_prep"] = str(prep_path)
+
+    factcheck_json = OUTPUT_DIR / f"{stem}_fact_check.json"
+    write_json(factcheck_json, {
+        "passed": validation.passed,
+        "reviewed": validation.reviewed,
+        "skipped": validation.skipped,
+        "skip_reason": validation.skip_reason,
+        "violations": validation.violations,
+    })
+    record.artifacts.update({
+        "markdown": str(result.md_path),
+        "fact_check_json": str(factcheck_json),
+    })
+    if result.pdf_path:
+        record.artifacts["pdf"] = str(result.pdf_path)
+
+    evidence_path = OUTPUT_DIR / f"{stem}_evidence.json"
+    write_json(evidence_path, build_evidence_matrix(
+        result.audit or AuditReport(markdown=""),
+        master_md,
+        tailored_md,
+    ))
+    review_path = OUTPUT_DIR / f"{stem}_review.json"
+    write_json(review_path, build_review_summary(
+        result.audit or AuditReport(markdown=""),
+        validation,
+        record.approval_state,
+    ))
+    record.artifacts.update({
+        "evidence_matrix": str(evidence_path),
+        "review_summary": str(review_path),
+    })
+    manifest_path = OUTPUT_DIR / f"{stem}_package.json"
+    write_json(manifest_path, {
+        "application_id": record.id,
+        "company": company,
+        "role": role,
+        "artifacts": record.artifacts,
+        "approval_state": record.approval_state,
+    })
+    result.package_manifest = manifest_path
+    record.artifacts["package_manifest"] = str(manifest_path)
+    ApplicationStore(APPLICATIONS_FILE).upsert(record)
 
     return result

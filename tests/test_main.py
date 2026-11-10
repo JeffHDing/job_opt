@@ -88,7 +88,7 @@ class TestCLI:
         assert kwargs["audit"] is True
         assert kwargs["factcheck"] is True
         assert kwargs["export_pdf"] is True
-        assert kwargs["max_pages"] == 2
+        assert kwargs["max_pages"] == 1
 
     @pytest.mark.parametrize("flag, disabled_kwarg", [
         ("--no-audit", "audit"),

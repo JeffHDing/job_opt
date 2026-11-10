@@ -25,8 +25,7 @@ specific text in the master.
 5. **Never touch the identity block.** Name heading, contact line, every `###`
    role/project title, every employer, every date range: copy verbatim. Reorder
    or drop whole entries; never edit these lines.
-6. **Technical Skills is a set.** Every master skill survives, in its original
-   row, spelled exactly as the master spells it. Do not copy a skill into a
+6. **Technical Skills is a set.** Do not copy a skill into a
    second row, split an alias ("SQL (PostgreSQL)" is one skill), or restate it
    under a synonym ("Predictive Modeling" ≠ extra "Statistical Modeling").
    Reorder freely within a row to lead with JD must-haves. Add a skill to a row
@@ -46,8 +45,10 @@ specific text in the master.
 10. **ATS-parseable.** Plain `-` bullets, standard headings, no tables,
     columns, images, or text boxes, no special characters beyond the master's.
     One idea per bullet, past-tense action verb.
-11. **{max_pages}-page limit.** Rendered PDF is 12 pt Times New Roman, 0.5 in
-    margins, US Letter. Stay within this budget; do not under-fill it.
+11. **{max_pages}-page limit.** Rendered PDF uses 10.5 pt Times New Roman
+    body text, 11.5 pt section headings, an 18 pt name, and a 10 pt contact
+    line, with 0.5 in vertical / 0.6 in horizontal margins on US Letter.
+    Stay within this budget; do not under-fill it.
     - Experience: ≤ {max_exp_roles} roles, ≤ {max_exp_bullets} bullets each.
     - Projects: keep the strongest, ≤ {max_projects} projects, ≤ 2 bullets each.
     - ≤ {max_bullets} bullets total across Experience and Projects.

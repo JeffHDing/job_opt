@@ -23,13 +23,14 @@ from google.genai import types
 from google.genai.errors import ClientError, ServerError
 
 from audit import AuditReport, parse_audit_report
-from config import DEFAULT_MAX_PAGES, PROJECT_ROOT, PROMPTS_DIR
+from config import DEFAULT_MAX_PAGES, PROJECT_ROOT, PROMPTS_DIR, RUN_LOG_FILE
 from resume_diff import (
     ResumeChange,
     ValidationResult,
     find_changes,
     find_unsupported_skills,
 )
+from run_logging import RunLogger, prompt_version, token_count
 
 load_dotenv(PROJECT_ROOT / ".env")
 
@@ -99,15 +100,30 @@ _MODEL = "gemini-3.5-flash-lite"
 
 # Per-stage overrides. The auditor does the most reasoning and is the one worth
 # pointing at a stronger model if you have the quota.
-_AUDITOR_MODEL   = _MODEL
+_AUDITOR_MODEL   = "gemini-3.8-flash"
 _TAILOR_MODEL    = _MODEL
 _FACTCHECK_MODEL = _MODEL
 
 _MAX_OUTPUT_TOKENS = 8192
 
-_AUDITOR_SYSTEM_PROMPT   = (PROMPTS_DIR / "auditor_system.txt").read_text()
-_TAILOR_SYSTEM_PROMPT    = (PROMPTS_DIR / "tailor_system.txt").read_text()
-_FACTCHECK_SYSTEM_PROMPT = (PROMPTS_DIR / "factcheck_system.txt").read_text()
+_AUDITOR_SYSTEM_PROMPT = (PROMPTS_DIR / "auditor_system.txt").read_text(
+    encoding="utf-8"
+)
+_TAILOR_SYSTEM_PROMPT = (PROMPTS_DIR / "tailor_system.txt").read_text(
+    encoding="utf-8"
+)
+_FACTCHECK_SYSTEM_PROMPT = (PROMPTS_DIR / "factcheck_system.txt").read_text(
+    encoding="utf-8"
+)
+_COVER_LETTER_PROMPT = (
+    "Draft a concise, evidence-grounded cover letter. Use only the master "
+    "resume as factual evidence. Return only the letter."
+)
+_INTERVIEW_PREP_PROMPT = (
+    "Create interview preparation for this role with likely questions and "
+    "STAR prompts. Use only evidence from the master resume. Return Markdown."
+)
+_RUN_LOGGER = RunLogger(RUN_LOG_FILE)
 
 
 def _generate(
@@ -128,7 +144,28 @@ def _generate(
         ),
         contents=contents,
     ))
+    usage = getattr(response, "usage_metadata", None)
+    _RUN_LOGGER.log(
+        event="llm_call",
+        model=model,
+        prompt_version=prompt_version(system_instruction),
+        input_tokens=token_count(getattr(usage, "prompt_token_count", None)),
+        output_tokens=token_count(getattr(usage, "candidates_token_count", None)),
+        estimated_cost_usd=_estimate_cost(usage),
+    )
     return response.text.strip()
+
+
+def _estimate_cost(usage: Any) -> float | None:
+    """Estimate cost when the provider returns token usage."""
+    if usage is None:
+        return None
+    input_tokens = token_count(getattr(usage, "prompt_token_count", None))
+    output_tokens = token_count(getattr(usage, "candidates_token_count", None))
+    if input_tokens is None or output_tokens is None:
+        return None
+    # Gemini's free-tier usage is currently zero-cost for this local tool.
+    return 0.0
 
 
 def _tailor_page_budget(max_pages: int) -> dict[str, int]:
@@ -324,4 +361,30 @@ def _factcheck_message(
         f"{_resume_and_jd(master_resume_md, job_description)}\n\n"
         "## Edits to Review\n\n"
         + "\n\n".join(items)
+    )
+
+
+def generate_cover_letter(
+    master_resume_md: str, job_description: str, tailored_resume_md: str
+) -> str:
+    """Generate a draft only; callers must present it for human approval."""
+    return _generate(
+        model=_TAILOR_MODEL,
+        system_instruction=_COVER_LETTER_PROMPT,
+        contents=_resume_and_jd(master_resume_md, job_description)
+        + f"\n\n## Tailored Resume\n\n{tailored_resume_md.strip()}",
+        temperature=0.3,
+    )
+
+
+def generate_interview_prep(
+    master_resume_md: str, job_description: str, tailored_resume_md: str
+) -> str:
+    """Generate interview preparation without submitting or contacting anyone."""
+    return _generate(
+        model=_FACTCHECK_MODEL,
+        system_instruction=_INTERVIEW_PREP_PROMPT,
+        contents=_resume_and_jd(master_resume_md, job_description)
+        + f"\n\n## Tailored Resume\n\n{tailored_resume_md.strip()}",
+        temperature=0.2,
     )
