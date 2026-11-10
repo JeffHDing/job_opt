@@ -1,15 +1,8 @@
 # Jeffrey Ding
 
-**[Role Title]**
-
 (+1) 647-928-5709 | [jeffreyhding@gmail.com](mailto:jeffreyhding@gmail.com) | [LinkedIn](https://www.linkedin.com/in/jeffhding/) | [GitHub](https://www.github.com/JeffHDing)
 
-## Technical Skills
-
-- **Programming & Databases:** Python (Pandas, NumPy), R, JavaScript, SQL (PostgreSQL), IBM Db2, NoSQL (MongoDB), DBMS
-- **Data Science & Experimentation:** EDA, Data Visualization, ETL, Data Pipelines, Feature Engineering, Bayesian Statistics, Geospatial Analysis, Time Series Analysis, Experimental Design, A/B Testing, Causal Inference
-- **Machine Learning & AI:** Scikit-learn, TensorFlow, PyTorch, Keras, Hugging Face, Computer Vision, Linear Modelling, Predictive Modeling, NLP, HMMs, LLMs, RAG, Prompt Engineering, Agentic Workflows, Langchain
-- **Tools & Infrastructure:** AWS (S3, EC2), Docker, Git, CI/CD, MS Office, Cursor, Copilot
+Data Scientist transitioning into industry from a background in research. Experienced in developing and deploying machine learning solutions to address real-world business challenges, including a computer vision-based compliance automation system that achieved over 95% precision for an industry client. Skilled in Python, SQL, machine learning, and emerging AI technologies, with experience translating business requirements into practical technical solutions. Passionate about solving complex problems through data-driven approaches and leveraging machine learning to build impactful, scalable applications. Seeking opportunities to contribute as a Data Scientist or Machine Learning Engineer across industries.
 
 ## Education
 
@@ -19,35 +12,7 @@ _University of British Columbia_ | Vancouver, BC | GPA: 3.7/4.0 | Sep 2025 - Jun
 
 ### Honours Bachelor of Medical Sciences
 
-_University of Western Ontario_ | London, ON | GPA: 3.7/4.0 | 2017 - 2021
-
-## Experience
-
-### Data Manager
-
-_Sunnybrook Research Institute_ | Toronto, ON | Feb 2022 - Feb 2024
-
-- Abstracted unstructured data using proprietary EDC systems from 250+ patients to evaluate outcomes and causally infer treatment efficacy.
-- Increased trial participation by an estimated 40% by aggregating and screening new patient data within the hospital database.
-- Leveraged organizational and leadership skills to manage the simultaneous conduct of 15+ clinical trials, coordinating cross-functional teams in a high-growth environment.
-- Accelerated the activation of 10+ new trials through thorough scrutiny of financial and legal submissions, reducing startup time within the team by 30%.
-- Liaised with stakeholders and client representatives by facilitating on-site/remote visits and reconciling 200+ queries on CRO systems.
-
-### Machine Learning for Life Science Mentorship
-
-_University of Toronto_ | Toronto, ON | Jun 2024 - Jul 2025
-
-- Partnered with researchers as a clinical research coordinator consultant to bolster recruitment to ongoing projects.
-- Advised on participant recruitment strategies by providing communication recommendations to researchers improving trial enrollment by 10%.
-- Applied machine learning and deep learning concepts towards developing independent data science projects in Python, such as a convolutional neural network for disease detection.
-
-### Summer Undergraduate Researcher
-
-_University Health Network (UHN)_ | Toronto, ON | May 2019 - Aug 2019
-
-- Performed multivariate regression on CPAC data with SPSS to identify burdens on clinical trial dropout rates and presented findings in a conference to a multidisciplinary panel of judges.
-- Analyzed 15 records of provincial healthcare data, identifying operational bottlenecks that led to a 20% improvement in patient transition efficiency and reduced burden on specialist care.
-- Supported patient care by exercising soft skills and customer-oriented communication to provide excellent patient experiences.
+_University of Western Ontario_ | London, ON | GPA: 3.7/4.0 | Sep 2017 - Apr 2021
 
 ## Projects
 
@@ -87,6 +52,41 @@ _University Health Network (UHN)_ | Toronto, ON | May 2019 - Aug 2019
 - **NYC Motor Vehicle Collision Heatmap:** Designed an interactive web app with Python, Folium, and Streamlit to visualize NYC traffic accidents.
 - **Stock Exchange Revenue Dashboard:** Published a Jupyter notebook that visualizes time-series stock data from Yahoo! Finance using dynamic figures.
 
+## Experience
+
+### Data Manager
+
+_Sunnybrook Research Institute_ | Toronto, ON | Feb 2022 - Feb 2024
+
+- Abstracted unstructured data using proprietary EDC systems from 250+ patients to evaluate outcomes and causally infer treatment efficacy.
+- Increased trial participation by an estimated 40% by aggregating and screening new patient data within the hospital database.
+- Leveraged organizational and leadership skills to manage the simultaneous conduct of 15+ clinical trials, coordinating cross-functional teams in a high-growth environment.
+- Accelerated the activation of 10+ new trials through thorough scrutiny of financial and legal submissions, reducing startup time within the team by 30%.
+- Liaised with stakeholders and client representatives by facilitating on-site/remote visits and reconciling 200+ queries on CRO systems.
+
+### Machine Learning for Life Science Mentorship
+
+_University of Toronto_ | Toronto, ON | Jun 2024 - Jul 2025
+
+- Partnered with researchers as a clinical research coordinator consultant to bolster recruitment to ongoing projects.
+- Advised on participant recruitment strategies by providing communication recommendations to researchers improving trial enrollment by 10%.
+- Applied machine learning and deep learning concepts towards developing independent data science projects in Python, such as a convolutional neural network for disease detection.
+
+### Summer Undergraduate Researcher
+
+_University Health Network (UHN)_ | Toronto, ON | May 2019 - Aug 2019
+
+- Performed multivariate regression on CPAC data with SPSS to identify burdens on clinical trial dropout rates and presented findings in a conference to a multidisciplinary panel of judges.
+- Analyzed 15 records of provincial healthcare data, identifying operational bottlenecks that led to a 20% improvement in patient transition efficiency and reduced burden on specialist care.
+- Supported patient care by exercising soft skills and customer-oriented communication to provide excellent patient experiences.
+
 ## Certifications
 
 - **IBM Data Science Professional Specialization:** IBM, Coursera (2024)
+
+## Technical Skills
+
+- **Programming & Databases:** Python (Pandas, NumPy), R, JavaScript, SQL (PostgreSQL), IBM Db2, NoSQL (MongoDB), DBMS
+- **Data Science & Analytics:** Statistical Analysis, EDA, Predictive Modeling, Regression, Bayesian Statistics, Feature Engineering, Data Preprocessing, Data Visualization, ETL, Data Pipelines, Time Series Analysis, Geospatial Analysis, Experimental Design, A/B Testing, Causal Inference
+- **Machine Learning & Deep Learning:** Scikit-learn, TensorFlow, PyTorch, Keras, Supervised Learning, Classification, Ensemble Learning, Computer Vision (YOLO, CNNs), Natural Language Processing, Hidden Markov Models
+- **Generative AI & Infrastructure:** LLMs, RAG, Semantic Search, BM25, Dense Vector Retrieval, Reciprocal Rank Fusion (RRF), Prompt Engineering, Agentic Workflows, Multi-Agent Systems, LangChain, Hugging Face, MCP, AWS (S3, EC2), Docker, Git, CI/CD, TDD
